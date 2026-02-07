@@ -1,6 +1,58 @@
+# frozen_string_literal: true
+
 require "catpm/version"
+require "catpm/configuration"
+require "catpm/event"
+require "catpm/tdigest"
+require "catpm/errors"
+require "catpm/buffer"
+require "catpm/circuit_breaker"
+require "catpm/adapter"
+require "catpm/fingerprint"
+require "catpm/flusher"
+require "catpm/collector"
+require "catpm/middleware"
+require "catpm/subscribers"
+require "catpm/lifecycle"
+require "catpm/trace"
 require "catpm/engine"
 
 module Catpm
-  # Your code goes here...
+  class << self
+    def configure
+      yield(config)
+    end
+
+    def config
+      @config ||= Configuration.new
+    end
+
+    def reset_config!
+      @config = Configuration.new
+      @buffer = nil
+      @flusher = nil
+    end
+
+    def enabled?
+      config.enabled
+    end
+
+    attr_writer :buffer, :flusher
+
+    def buffer
+      @buffer
+    end
+
+    def flusher
+      @flusher
+    end
+
+    def stats
+      @stats ||= { dropped_events: 0, circuit_opens: 0, flushes: 0 }
+    end
+
+    def reset_stats!
+      @stats = { dropped_events: 0, circuit_opens: 0, flushes: 0 }
+    end
+  end
 end
