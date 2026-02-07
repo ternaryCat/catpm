@@ -9,14 +9,15 @@ module Catpm
         initialize_buffer
         initialize_flusher
 
-        if defined?(::Puma::Plugin)
-          register_puma_hook
-        elsif defined?(::PhusionPassenger)
+        # Always start the flusher in the current process.
+        # For forking servers, also register post-fork hooks
+        # so each worker restarts its own flusher.
+        Catpm.flusher&.start
+
+        if defined?(::PhusionPassenger)
           register_passenger_hook
         elsif defined?(::Pitchfork)
           register_pitchfork_hook
-        else
-          Catpm.flusher&.start
         end
 
         register_shutdown_hooks
@@ -40,13 +41,6 @@ module Catpm
           interval: Catpm.config.flush_interval,
           jitter: Catpm.config.flush_jitter
         )
-      end
-
-      def register_puma_hook
-        flusher = Catpm.flusher
-        ::Puma::Plugin.create do
-          events.on_booted { flusher&.start }
-        end
       end
 
       def register_passenger_hook

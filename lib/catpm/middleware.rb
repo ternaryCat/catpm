@@ -13,7 +13,8 @@ module Catpm
 
       if Catpm.config.instrument_segments
         req_segments = RequestSegments.new(
-          max_segments: Catpm.config.max_segments_per_request
+          max_segments: Catpm.config.max_segments_per_request,
+          request_start: env["catpm.request_start"]
         )
         env["catpm.segments"] = req_segments
         Thread.current[:catpm_request_segments] = req_segments

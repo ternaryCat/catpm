@@ -535,11 +535,48 @@ The `context` JSONB column in `catpm_samples` carries kind-specific details. Thi
 
 | Kind | `context` structure |
 | --- | --- |
-| `http` | `{ "method": "GET", "path": "/users/1", "status": 200, "params": {...}, "headers": {...}, "db_runtime": 45.2, "view_runtime": 12.1, "allocations": 1500 }` |
-| `job` | `{ "job_class": "SendEmailJob", "job_id": "abc-123", "queue": "mailers", "arguments": [...], "queue_wait": 320.5, "db_runtime": 100.0, "attempt": 1 }` |
-| `custom` | `{ "target": "TelegramPoller#handle_update", "metadata": { "update_type": "message", "chat_id": 123 }, "db_runtime": 50.0 }` |
+| `http` | `{ "method": "GET", "path": "/users/1", "status": 200, "params": {...}, "segments": [...], "segment_summary": {...}, "segments_capped": false }` |
+| `job` | `{ "job_class": "SendEmailJob", "job_id": "abc-123", "queue": "mailers", "arguments": [...], "queue_wait": 320.5, "attempt": 1 }` |
+| `custom` | `{ "target": "TelegramPoller#handle_update", "metadata": { "update_type": "message", "chat_id": 123 } }` |
 
-The dashboard renders the context differently depending on `kind` — HTTP samples show request/response details, job samples show queue/retry info, custom samples show user-supplied metadata.
+The dashboard renders the context differently depending on `kind` — HTTP samples show request/response details with segment waterfall, job samples show queue/retry info, custom samples show user-supplied metadata.
+
+#### 3.4.1. Request-Level Segment Tracking
+
+HTTP samples include per-request **segments** — individual SQL queries, view renders, and their source locations. This enables drill-down into what happened inside a specific request.
+
+**Segment structure in `context`:**
+
+```json
+{
+  "method": "GET", "path": "/users", "status": 200,
+  "segments": [
+    {"type": "sql", "duration": 2.3, "detail": "SELECT \"users\".* FROM \"users\" LIMIT 20"},
+    {"type": "sql", "duration": 12.5, "detail": "SELECT \"posts\".* FROM ...", "source": "app/models/user.rb:42"},
+    {"type": "view", "duration": 8.3, "detail": "app/views/users/index.html.erb"}
+  ],
+  "segment_summary": {"sql_count": 15, "sql_duration": 45.2, "view_count": 3, "view_duration": 12.8},
+  "segments_capped": false
+}
+```
+
+**How it works:**
+
+1. Rack Middleware creates a `RequestSegments` collector in `Thread.current[:catpm_request_segments]`.
+2. `ActiveSupport::Notifications` subscribers for `sql.active_record` and `render_template/partial.action_view` fire during request processing and add segments to the collector.
+3. `process_action.action_controller` fires **after** all inner events. The Collector reads `Thread.current[:catpm_request_segments]`, merges segments into `context` (for samples) and summary counters into `metadata` (for bucket aggregation).
+4. Middleware `ensure` block clears `Thread.current[:catpm_request_segments]`.
+
+**Resource constraints:**
+
+*   **Cap at 50 segments** per request (`config.max_segments_per_request`). When full, the fastest segment is replaced if the new one is slower. Summary counters are always accurate regardless of cap.
+*   **Source location** (`caller_locations`) is only captured for segments exceeding `config.segment_source_threshold` (default: 5ms). `caller_locations` is expensive; skipping it for fast queries keeps overhead negligible.
+*   **SQL truncated** to `config.max_sql_length` (default: 200 chars). SCHEMA and migration queries are filtered out.
+*   **No PII risk** — SQL queries use Rails parameter binds (not inlined values), view details are just file paths.
+
+**Bucket-level aggregation:** The `segment_summary` counters (`sql_count`, `sql_duration`, `view_count`, `view_duration`) are merged into `metadata_sum` on the bucket via the existing additive merge logic. This enables "on average, 15 SQL queries taking 45ms" at the endpoint level — no new tables or migrations needed.
+
+**Self-exclusion:** Requests to catpm's own dashboard controllers (`Catpm::*`) are automatically excluded from tracking to avoid polluting data with monitoring overhead.
 
 ### 3.5. Percentile Tracking (TDigest)
 
@@ -699,17 +736,20 @@ skinparam activityBackgroundColor #e3f2fd
 |App Server|
 start
 :Rails application boots;
-:Engine initializer runs\n(registers middleware + subscribers);
+:Engine **config.after_initialize** runs\n(subscribers + lifecycle hooks);
+:Flusher starts directly\n(Concurrent::TimerTask.execute);
 
-if (Forking server?\n(Puma clustered,\nPassenger, Pitchfork)) then (yes)
+if (Forking server?\n(Passenger, Pitchfork)) then (yes)
   :Master process forks\nworker processes;
+  :Flusher thread dies (fork);
   :Worker **after_fork** hook fires;
+  :Flusher restarts in worker;
 else (no)
-  :Single-process mode\n(WEBrick, Falcon, dev);
+  :Single-process / per-worker boot\n(Puma single, Puma clustered\nwithout preload, Falcon, dev);
+  :Flusher already running;
 endif
 
 |Flusher Thread|
-:Catpm.flusher.start\n(Concurrent::TimerTask.execute);
 
 repeat
   :Sleep **flush_interval**\n(default: 30s);
@@ -772,20 +812,23 @@ end note
 
 ### 5.3. App Server Integration
 
-The flusher must start **after** the app server forks worker processes. Starting before the fork is useless — the thread dies in forked children.
-
+The flusher is started directly in `config.after_initialize`. For forking servers (Passenger, Pitchfork), additional after-fork hooks ensure the flusher restarts in each worker process (since threads do not survive `fork(2)`).
 
 ```ruby
 # lib/catpm/engine.rb
 module Catpm
   class Engine < ::Rails::Engine
-    initializer "catpm.setup" do |app|
+    isolate_namespace Catpm
+
+    initializer "catpm.middleware" do |app|
       app.middleware.insert_before 0, Catpm::Middleware
-      Catpm::Instrumenter.subscribe!
     end
 
     config.after_initialize do
-      Catpm::Lifecycle.register_hooks
+      if Catpm.enabled?
+        Catpm::Subscribers.subscribe!
+        Catpm::Lifecycle.register_hooks
+      end
     end
   end
 end
@@ -796,40 +839,52 @@ end
 module Catpm
   module Lifecycle
     def self.register_hooks
-      if defined?(::Puma)
-        ::Puma::Plugin.create { |events| events.on_booted { Catpm.flusher.start } }
-      elsif defined?(::PhusionPassenger)
-        ::PhusionPassenger.on_event(:starting_worker_process) do |forked|
-          Catpm.flusher.start if forked
-        end
+      return unless Catpm.enabled?
+
+      initialize_buffer
+      initialize_flusher
+
+      # Always start the flusher in the current process.
+      # For forking servers, also register post-fork hooks
+      # so each worker restarts its own flusher.
+      Catpm.flusher&.start
+
+      if defined?(::PhusionPassenger)
+        register_passenger_hook
       elsif defined?(::Pitchfork)
-        # Pitchfork uses after_worker_fork
-        ::Pitchfork.configure { |server| server.after_worker_fork { Catpm.flusher.start } }
-      else
-        # Fallback for single-process servers (WEBrick, Falcon, development)
-        Catpm.flusher.start
+        register_pitchfork_hook
       end
 
       register_shutdown_hooks
     end
 
     def self.register_shutdown_hooks
-      at_exit { Catpm.flusher.stop(timeout: 5) }
+      at_exit { Catpm.flusher&.stop(timeout: 5) }
     end
   end
 end
 ```
 
+**Why always start directly?**
+
+*   **Puma single mode** (Rails 8 default: `workers: 0`): No forking — direct start is the only path.
+*   **Puma clustered without `preload_app!`**: Each worker loads the app independently, so `config.after_initialize` runs per-worker and the flusher starts correctly in each.
+*   **Puma clustered with `preload_app!`**: The flusher starts in the master process, but the thread dies after fork. Users must add `on_worker_boot { Catpm.flusher&.start }` to `config/puma.rb`. This is documented in the install generator output.
+*   **Passenger / Pitchfork**: After-fork hooks are registered automatically — zero configuration needed.
+
+**Note on `Puma::Plugin`:** Earlier designs used `Puma::Plugin.create` to hook into Puma's boot lifecycle. This does not work — Puma discovers plugins via `require "puma/plugin/xxx"` at load time, not via dynamic class creation at runtime. The direct-start approach is simpler and correct for all common deployment scenarios.
+
 **Supported app servers:**
 
-| Server | Hook | Notes |
+| Server | Mechanism | Notes |
 | --- | --- | --- |
-| **Puma** (clustered) | `Puma::Plugin` `on_booted` | Each worker starts its own flusher after fork |
-| **Puma** (single) | Fallback path | No forking, starts directly |
-| **Passenger** | `on_event(:starting_worker_process)` | `forked` flag indicates smart spawning |
-| **Pitchfork** | `after_worker_fork` | Shopify's Unicorn fork |
-| **Unicorn** | `after_fork` in `unicorn.rb` | User must add `Catpm.flusher.start` manually (documented) |
-| **WEBrick / Falcon** | Fallback | Single-process, no fork concerns |
+| **Puma** (single) | Direct start in `after_initialize` | Rails 8 default (`workers: 0`), zero config |
+| **Puma** (clustered, no preload) | Direct start in `after_initialize` | Each worker loads app independently |
+| **Puma** (clustered + `preload_app!`) | Manual `on_worker_boot` hook | Power-user config; documented in install generator |
+| **Passenger** | Direct start + `on_event(:starting_worker_process)` | Automatic, zero config |
+| **Pitchfork** | Direct start + `after_worker_fork` | Automatic, zero config |
+| **Unicorn** | Direct start + manual `after_fork` | User adds `Catpm.flusher&.start` in `unicorn.rb` |
+| **Falcon / single-process** | Direct start in `after_initialize` | No fork concerns |
 
 ### 5.4. Graceful Shutdown
 
@@ -1510,6 +1565,10 @@ Filtering is applied at the Collector stage — sensitive data never reaches the
 | **Kind-agnostic schema with JSONB metadata** | Single pipeline for HTTP, jobs, custom traces. No schema changes needed for new kinds. | Kind-specific queries on `metadata_sum` are slower than dedicated columns. Dashboard must branch rendering per kind. |
 | **SQLite read-modify-write for merges** | Full SQLite support, no custom C extensions. | Slower flush than PostgreSQL's single `upsert_all`. Acceptable for target workload (<500 unique buckets/flush). |
 | **`flush_jitter` for SQLite** | Desynchronizes workers, avoids `BUSY`. | Slight delay variance (±5s) in data freshness across workers. |
+| **Segment tracking via Thread.current** | No gem dependency, safe in threaded servers, cleared in middleware ensure. | Per-request, not per-thread in the abstract sense. Relies on middleware lifecycle. |
+| **Capped segments (50, keep slowest)** | Bounded memory per request. Summary counters always accurate. | Fast segments may be evicted; waterfall may be incomplete for segment-heavy requests. |
+| **`caller_locations` only above threshold** | Negligible overhead for typical requests (~95% of queries are fast). | No source info for sub-threshold segments. Threshold must be tuned per app. |
+| **Direct flusher start (no Puma plugin)** | Works for all common deployments (single, clustered without preload). Simpler code. | Requires manual `on_worker_boot` for Puma clustered + `preload_app!` (power-user config). |
 
 ## 12. Configuration
 
@@ -1527,6 +1586,10 @@ Catpm.configure do |config|
   # Instrumentation
   config.instrument_http = true              # Auto-track HTTP requests (default: true)
   config.instrument_jobs = false             # Auto-track ActiveJob perform (default: false)
+  config.instrument_segments = true          # Track SQL/view segments per request (default: true)
+  config.max_segments_per_request = 50       # Cap segments per request (keeps slowest when full)
+  config.segment_source_threshold = 5.0      # ms — only capture caller_locations above this
+  config.max_sql_length = 200                # Truncate SQL queries to this length
   config.slow_threshold = 500                # milliseconds — applies to all kinds
   config.slow_threshold_per_kind = {         # Override per kind (optional)
     http: 500,
@@ -1560,7 +1623,7 @@ end
 | **DB Bloat** | Medium | Self-cleaning mechanism with batched deletes + downsampling (9.3) |
 | **Connection Pool Blocking** | High | `with_connection` block ensures connection is released immediately (9.4) |
 | **Impact on Response Time** | High | `ActiveSupport::Notifications` is non-blocking; buffer push is O(1) with no waiting |
-| **Thread dies after fork** | Critical | App server hooks ensure flusher starts in worker process (5.2) |
+| **Thread dies after fork** | Critical | Flusher starts directly + after-fork hooks for Passenger/Pitchfork. Puma clustered with `preload_app!` requires manual `on_worker_boot` hook (documented). See 5.3. |
 | **Data races on buffer** | Critical | `Monitor`-protected buffer with atomic drain (4.1) |
 | **DB outage causes log spam / thread hang** | Medium | Circuit breaker with 60s recovery timeout (6) |
 | **Buffer data loss on SIGKILL** | Low | Accepted trade-off; `at_exit` handles graceful shutdown; only last ≤30s of data at risk |

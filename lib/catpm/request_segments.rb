@@ -4,8 +4,9 @@ module Catpm
   class RequestSegments
     attr_reader :segments, :summary
 
-    def initialize(max_segments:)
+    def initialize(max_segments:, request_start: nil)
       @max_segments = max_segments
+      @request_start = request_start || Process.clock_gettime(Process::CLOCK_MONOTONIC)
       @segments = []
       @overflow = false
       @summary = {
@@ -14,7 +15,7 @@ module Catpm
       }
     end
 
-    def add(type:, duration:, detail:, source: nil)
+    def add(type:, duration:, detail:, source: nil, started_at: nil)
       case type
       when :sql
         @summary[:sql_count] += 1
@@ -24,7 +25,10 @@ module Catpm
         @summary[:view_duration] += duration
       end
 
+      offset = started_at ? ((started_at - @request_start) * 1000.0).round(2) : nil
+
       segment = { type: type.to_s, duration: duration.round(2), detail: detail }
+      segment[:offset] = offset if offset
       segment[:source] = source if source
 
       if @segments.size < @max_segments

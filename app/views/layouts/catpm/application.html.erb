@@ -41,6 +41,10 @@
     .empty { color: #484f58; text-align: center; padding: 32px; font-style: italic; }
     .source { color: #3fb950; font-size: 11px; font-family: "SF Mono", monospace; }
     .sql-text { color: #79c0ff; font-size: 11px; font-family: "SF Mono", monospace; word-break: break-all; }
+    .sql-expandable { max-height: 1.4em; overflow: hidden; cursor: pointer; position: relative; }
+    .sql-expandable::after { content: " ▸"; color: #484f58; }
+    .sql-expandable.expanded { max-height: none; white-space: pre-wrap; }
+    .sql-expandable.expanded::after { content: " ▾"; }
     .kv { display: inline-block; background: #21262d; border-radius: 4px; padding: 2px 8px; margin: 2px; font-size: 12px; }
     .kv .k { color: #8b949e; }
     .kv .v { color: #f0f6fc; }

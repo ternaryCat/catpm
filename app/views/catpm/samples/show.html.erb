@@ -55,59 +55,70 @@
   <% total = @sample.duration %>
 
   <h2>Time Breakdown</h2>
-  <div style="display:flex; height:36px; border-radius:6px; overflow:hidden; gap:1px; margin-bottom:16px">
+  <div style="display:flex; height:36px; border-radius:6px; overflow:hidden; margin-bottom:4px">
     <% if sql_dur > 0 && total > 0 %>
-      <div style="width:<%= (sql_dur / total * 100).clamp(1, 100) %>%; background:#1f6feb; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; min-width:50px;">
-        SQL <%= "%.1f" % sql_dur %>ms
+      <div style="flex:<%= sql_dur %>; background:#1f6feb; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
+        <% if sql_dur / total > 0.08 %>SQL <%= "%.1f" % sql_dur %>ms<% end %>
       </div>
     <% end %>
     <% if view_dur > 0 && total > 0 %>
-      <div style="width:<%= (view_dur / total * 100).clamp(1, 100) %>%; background:#8957e5; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; min-width:50px;">
-        View <%= "%.1f" % view_dur %>ms
+      <div style="flex:<%= view_dur %>; background:#8957e5; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
+        <% if view_dur / total > 0.08 %>View <%= "%.1f" % view_dur %>ms<% end %>
       </div>
     <% end %>
     <% if other_dur > 0 && total > 0 %>
-      <div style="width:<%= (other_dur / total * 100).clamp(1, 100) %>%; background:#484f58; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; min-width:50px;">
-        Other <%= "%.1f" % other_dur %>ms
+      <div style="flex:<%= other_dur %>; background:#484f58; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
+        <% if other_dur / total > 0.08 %>Other <%= "%.1f" % other_dur %>ms<% end %>
       </div>
     <% end %>
   </div>
+  <div style="display:flex; gap:16px; margin-bottom:16px; font-size:11px; color:#8b949e">
+    <span><span style="display:inline-block;width:10px;height:10px;background:#1f6feb;border-radius:2px;margin-right:4px"></span>SQL <%= "%.1f" % sql_dur %>ms (<%= "%.0f" % (total > 0 ? sql_dur/total*100 : 0) %>%)</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#8957e5;border-radius:2px;margin-right:4px"></span>View <%= "%.1f" % view_dur %>ms (<%= "%.0f" % (total > 0 ? view_dur/total*100 : 0) %>%)</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#484f58;border-radius:2px;margin-right:4px"></span>Other <%= "%.1f" % other_dur %>ms (<%= "%.0f" % (total > 0 ? other_dur/total*100 : 0) %>%)</span>
+  </div>
 <% end %>
 
-<%# ─── Segments Waterfall ─── %>
+<%# ─── Segments Timeline ─── %>
 <% if @segments.any? %>
   <h2>Segments (<%= @segments.size %><%= @context["segments_capped"] || @context[:segments_capped] ? " — capped" : "" %>)</h2>
 
-  <% max_dur = @segments.map { |s| (s["duration"] || s[:duration] || 0).to_f }.max %>
-  <% max_dur = 1.0 if max_dur == 0 %>
+  <% total_dur = @sample.duration %>
+  <% total_dur = 1.0 if total_dur == 0 %>
 
   <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; overflow:hidden">
     <table style="margin:0">
       <thead>
         <tr>
-          <th style="width:50px">#</th>
-          <th style="width:60px">Type</th>
-          <th style="width:80px">Duration</th>
+          <th style="width:40px">#</th>
+          <th style="width:55px">Type</th>
+          <th style="width:70px">Duration</th>
+          <th style="width:60px">Offset</th>
           <th>Detail</th>
-          <th style="width:30%">Timeline</th>
+          <th style="width:35%">Timeline</th>
         </tr>
       </thead>
       <tbody>
         <% @segments.each_with_index do |seg, i| %>
           <% type = (seg["type"] || seg[:type]).to_s %>
           <% dur = (seg["duration"] || seg[:duration] || 0).to_f %>
+          <% offset = (seg["offset"] || seg[:offset] || 0).to_f %>
           <% detail = (seg["detail"] || seg[:detail]).to_s %>
           <% source = seg["source"] || seg[:source] %>
-          <% bar_pct = (dur / max_dur * 100).clamp(1, 100) %>
           <% bar_color = type == "sql" ? "#1f6feb" : type == "view" ? "#8957e5" : "#484f58" %>
+          <% left_pct = (offset / total_dur * 100).clamp(0, 99) %>
+          <% width_pct = (dur / total_dur * 100).clamp(0.5, 100 - left_pct) %>
 
           <tr>
             <td class="mono" style="color:#484f58"><%= i + 1 %></td>
             <td><span class="badge badge-<%= type %>"><%= type %></span></td>
             <td class="mono" style="text-align:right"><%= "%.2f" % dur %>ms</td>
+            <td class="mono" style="text-align:right;color:#484f58"><%= "%.0f" % offset %>ms</td>
             <td>
-              <% if type == "sql" %>
-                <div class="sql-text"><%= truncate(detail, length: 120) %></div>
+              <% if type == "sql" && detail.length > 80 %>
+                <div class="sql-text sql-expandable" onclick="this.classList.toggle('expanded')" title="Click to expand"><%= detail %></div>
+              <% elsif type == "sql" %>
+                <div class="sql-text"><%= detail %></div>
               <% else %>
                 <div class="mono"><%= detail %></div>
               <% end %>
@@ -117,11 +128,7 @@
             </td>
             <td>
               <div class="bar-container">
-                <div class="bar-fill" style="width:<%= bar_pct %>%; background:<%= bar_color %>">
-                  <% if bar_pct > 15 %>
-                    <%= "%.2f" % dur %>ms
-                  <% end %>
-                </div>
+                <div class="bar-fill" style="margin-left:<%= left_pct %>%; width:<%= width_pct %>%; background:<%= bar_color %>"></div>
               </div>
             </td>
           </tr>
@@ -130,39 +137,6 @@
     </table>
   </div>
 
-  <%# ─── Slowest Segments ─── %>
-  <% sorted = @segments.sort_by { |s| -(s["duration"] || s[:duration] || 0).to_f }.first(5) %>
-  <h2>Top 5 Slowest</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Type</th>
-        <th>Duration</th>
-        <th>Detail</th>
-        <th>Source</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% sorted.each do |seg| %>
-        <% type = (seg["type"] || seg[:type]).to_s %>
-        <% dur = (seg["duration"] || seg[:duration] || 0).to_f %>
-        <% detail = (seg["detail"] || seg[:detail]).to_s %>
-        <% source = seg["source"] || seg[:source] %>
-        <tr>
-          <td><span class="badge badge-<%= type %>"><%= type %></span></td>
-          <td class="mono" style="font-weight:600"><%= "%.2f" % dur %>ms</td>
-          <td>
-            <% if type == "sql" %>
-              <div class="sql-text"><%= detail %></div>
-            <% else %>
-              <div class="mono"><%= detail %></div>
-            <% end %>
-          </td>
-          <td><% if source %><div class="source"><%= source %></div><% else %>—<% end %></td>
-        </tr>
-      <% end %>
-    </tbody>
-  </table>
 <% else %>
   <h2>Segments</h2>
   <div class="empty">No segments captured for this request.</div>

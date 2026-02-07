@@ -1,0 +1,32 @@
+<h2><%= title %> (<%= samples.size %>)</h2>
+<% if samples.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Duration</th>
+        <th>Segments</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% samples.each do |s| %>
+        <% ctx = s.parsed_context; summary = ctx["segment_summary"] || ctx[:segment_summary] || {} %>
+        <tr class="clickable" onclick="window.location='<%= catpm.sample_path(s) %>'">
+          <td class="mono"><%= "%.1f" % s.duration %>ms</td>
+          <td>
+            <% sc = (summary["sql_count"] || summary[:sql_count] || 0).to_i %>
+            <% vc = (summary["view_count"] || summary[:view_count] || 0).to_i %>
+            <% if sc > 0 || vc > 0 %>
+              <span class="mono" style="color:#8b949e"><%= sc %> sql, <%= vc %> views</span>
+            <% else %>
+              <span style="color:#484f58">—</span>
+            <% end %>
+          </td>
+          <td class="mono"><%= s.recorded_at.strftime("%H:%M:%S") %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <div class="empty"><%= empty_msg %></div>
+<% end %>

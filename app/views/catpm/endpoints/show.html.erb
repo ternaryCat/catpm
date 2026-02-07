@@ -1,19 +1,19 @@
-<% content_for :title, @bucket.target %>
+<% content_for :title, @target %>
 <% content_for :subtitle do %>
-  <span class="badge badge-<%= @bucket.kind %>"><%= @bucket.kind %></span>
-  <strong><%= @bucket.target %></strong> <%= @bucket.operation %>
-  &middot; <%= @bucket.bucket_start.strftime("%Y-%m-%d %H:%M") %>
+  <span class="badge badge-<%= @kind %>"><%= @kind %></span>
+  <strong><%= @target %></strong> <%= @operation.presence %>
+  &middot; <%= @count %> requests
 <% end %>
 
 <%# ─── Stats Cards ─── %>
 <div class="grid">
   <div class="card">
     <div class="label">Requests</div>
-    <div class="value green"><%= @bucket.count %></div>
+    <div class="value green"><%= @count %></div>
   </div>
   <div class="card">
     <div class="label">Avg Duration</div>
-    <div class="value"><%= "%.1f" % @bucket.average_duration %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= "%.1f" % @avg_duration %><span style="font-size:14px;color:#8b949e">ms</span></div>
   </div>
   <div class="card">
     <div class="label">p95</div>
@@ -21,16 +21,16 @@
   </div>
   <div class="card">
     <div class="label">Max</div>
-    <div class="value red"><%= "%.1f" % @bucket.duration_max %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value red"><%= "%.1f" % @duration_max %><span style="font-size:14px;color:#8b949e">ms</span></div>
   </div>
   <div class="card">
     <div class="label">Min</div>
-    <div class="value"><%= "%.1f" % @bucket.duration_min %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= "%.1f" % @duration_min %><span style="font-size:14px;color:#8b949e">ms</span></div>
   </div>
   <div class="card">
     <div class="label">Failures</div>
-    <div class="value <%= @bucket.failure_count > 0 ? 'red' : '' %>"><%= @bucket.failure_count %></div>
-    <div class="detail"><%= "%.1f" % (@bucket.failure_rate * 100) %>%</div>
+    <div class="value <%= @failure_count > 0 ? 'red' : '' %>"><%= @failure_count %></div>
+    <div class="detail"><%= "%.1f" % (@failure_rate * 100) %>%</div>
   </div>
 </div>
 
@@ -52,16 +52,13 @@
 <% sql_dur = (@metadata["sql_duration"] || @metadata[:sql_duration] || 0).to_f %>
 <% view_count = (@metadata["view_count"] || @metadata[:view_count] || 0).to_f %>
 <% view_dur = (@metadata["view_duration"] || @metadata[:view_duration] || 0).to_f %>
-<% db_rt = (@metadata["db_runtime"] || @metadata[:db_runtime] || 0).to_f %>
-<% view_rt = (@metadata["view_runtime"] || @metadata[:view_runtime] || 0).to_f %>
-<% total_dur = @bucket.duration_sum %>
 
-<% if sql_count > 0 || view_count > 0 || db_rt > 0 %>
+<% if sql_count > 0 || view_count > 0 %>
   <h2>Average Time Breakdown</h2>
 
-  <% avg_total = @bucket.average_duration %>
-  <% avg_sql = @bucket.count > 0 ? sql_dur / @bucket.count : 0 %>
-  <% avg_view = @bucket.count > 0 ? view_dur / @bucket.count : 0 %>
+  <% avg_total = @avg_duration %>
+  <% avg_sql = @count > 0 ? sql_dur / @count : 0 %>
+  <% avg_view = @count > 0 ? view_dur / @count : 0 %>
   <% avg_other = [avg_total - avg_sql - avg_view, 0].max %>
 
   <% sql_pct = avg_total > 0 ? (avg_sql / avg_total * 100) : 0 %>
@@ -91,12 +88,12 @@
   <div class="grid">
     <div class="card">
       <div class="label">Avg SQL queries</div>
-      <div class="value"><%= "%.0f" % (@bucket.count > 0 ? sql_count / @bucket.count : 0) %></div>
+      <div class="value"><%= "%.0f" % (@count > 0 ? sql_count / @count : 0) %></div>
       <div class="detail"><%= "%.1f" % avg_sql %>ms avg</div>
     </div>
     <div class="card">
       <div class="label">Avg View renders</div>
-      <div class="value"><%= "%.0f" % (@bucket.count > 0 ? view_count / @bucket.count : 0) %></div>
+      <div class="value"><%= "%.0f" % (@count > 0 ? view_count / @count : 0) %></div>
       <div class="detail"><%= "%.1f" % avg_view %>ms avg</div>
     </div>
     <div class="card">
@@ -107,38 +104,6 @@
   </div>
 <% end %>
 
-<%# ─── Sample Requests ─── %>
-<h2>Sample Requests (<%= @samples.size %>)</h2>
-<% if @samples.any? %>
-  <table>
-    <thead>
-      <tr>
-        <th>Type</th>
-        <th>Duration</th>
-        <th>Segments</th>
-        <th>Time</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @samples.each do |s| %>
-        <% ctx = s.parsed_context; summary = ctx["segment_summary"] || ctx[:segment_summary] || {} %>
-        <tr class="clickable" onclick="window.location='<%= catpm.sample_path(s) %>'">
-          <td><span class="badge badge-<%= s.sample_type %>"><%= s.sample_type %></span></td>
-          <td class="mono"><%= "%.1f" % s.duration %>ms</td>
-          <td>
-            <% sc = (summary["sql_count"] || summary[:sql_count] || 0).to_i %>
-            <% vc = (summary["view_count"] || summary[:view_count] || 0).to_i %>
-            <% if sc > 0 || vc > 0 %>
-              <span class="mono" style="color:#8b949e"><%= sc %> sql, <%= vc %> views</span>
-            <% else %>
-              <span style="color:#484f58">—</span>
-            <% end %>
-          </td>
-          <td class="mono"><%= s.recorded_at.strftime("%H:%M:%S") %></td>
-        </tr>
-      <% end %>
-    </tbody>
-  </table>
-<% else %>
-  <div class="empty">No samples captured for this endpoint.</div>
-<% end %>
+<%= render "catpm/endpoints/sample_table", title: "Slowest Requests", samples: @slow_samples, empty_msg: "No slow requests captured." %>
+<%= render "catpm/endpoints/sample_table", title: "Sample Requests", samples: @samples, empty_msg: "No samples yet. First requests will be captured automatically." %>
+<%= render "catpm/endpoints/sample_table", title: "Error Requests", samples: @error_samples, empty_msg: "No errors." %>

@@ -5,7 +5,9 @@ require "concurrent"
 module Catpm
   class Flusher
     CLEANUP_INTERVAL = 1.hour
-    RANDOM_SAMPLE_RATE = 100 # 1 in N
+    RANDOM_SAMPLE_RATE = 20 # 1 in N
+    MAX_RANDOM_SAMPLES_PER_ENDPOINT = 5
+    MAX_SLOW_SAMPLES_PER_ENDPOINT = 5
 
     attr_reader :running
 
@@ -53,6 +55,7 @@ module Catpm
         adapter.persist_buckets(buckets)
 
         bucket_map = build_bucket_map(buckets)
+        samples = rotate_samples(samples)
         adapter.persist_samples(samples, bucket_map)
         adapter.persist_errors(errors)
       end
@@ -81,6 +84,14 @@ module Catpm
       bucket_groups = {}
       samples = []
       error_groups = {}
+
+      # Pre-load existing random sample counts per endpoint for filling phase
+      @random_sample_counts = {}
+      Catpm::Sample.where(sample_type: "random")
+        .joins(:bucket)
+        .group("catpm_buckets.kind", "catpm_buckets.target", "catpm_buckets.operation")
+        .count
+        .each { |(kind, target, op), cnt| @random_sample_counts[[kind, target, op]] = cnt }
 
       events.each do |event|
         # Bucket aggregation
@@ -179,9 +190,47 @@ module Catpm
 
       threshold = Catpm.config.slow_threshold_for(event.kind.to_sym)
       return "slow" if event.duration >= threshold
+
+      # Always sample if endpoint has few random samples (filling phase)
+      endpoint_key = [event.kind, event.target, event.operation]
+      existing_random = @random_sample_counts[endpoint_key] || 0
+      if existing_random < MAX_RANDOM_SAMPLES_PER_ENDPOINT
+        @random_sample_counts[endpoint_key] = existing_random + 1
+        return "random"
+      end
+
       return "random" if rand(RANDOM_SAMPLE_RATE) == 0
 
       nil
+    end
+
+    def rotate_samples(samples)
+      samples.each do |sample|
+        kind, target, operation = sample[:bucket_key][0], sample[:bucket_key][1], sample[:bucket_key][2]
+        endpoint_samples = Catpm::Sample
+          .joins(:bucket)
+          .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+
+        case sample[:sample_type]
+        when "random"
+          existing = endpoint_samples.where(sample_type: "random")
+          if existing.count >= MAX_RANDOM_SAMPLES_PER_ENDPOINT
+            existing.order(recorded_at: :asc).first.destroy
+          end
+        when "slow"
+          existing = endpoint_samples.where(sample_type: "slow")
+          if existing.count >= MAX_SLOW_SAMPLES_PER_ENDPOINT
+            weakest = existing.order(duration: :asc).first
+            if sample[:duration] > weakest.duration
+              weakest.destroy
+            else
+              sample[:_skip] = true
+            end
+          end
+        end
+      end
+
+      samples.reject { |s| s.delete(:_skip) }
     end
 
     def build_error_context(event)

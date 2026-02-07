@@ -37,14 +37,12 @@ class SegmentSubscribersTest < ActiveSupport::TestCase
     assert_equal "SELECT * FROM users", seg[:detail]
   end
 
-  test "record_sql_segment truncates long SQL" do
-    Catpm.configure { |c| c.max_sql_length = 20 }
-    long_sql = "SELECT * FROM users WHERE name = 'very long query here'"
+  test "record_sql_segment stores full SQL text" do
+    long_sql = "SELECT * FROM users WHERE name = 'very long query here that goes on and on'"
     event = mock_sql_event(name: "User Load", sql: long_sql, duration: 1.0)
     Catpm::SegmentSubscribers.send(:record_sql_segment, event)
 
-    assert @req_segments.segments.first[:detail].length <= 24 # 20 + "..."
-    assert @req_segments.segments.first[:detail].end_with?("...")
+    assert_equal long_sql, @req_segments.segments.first[:detail]
   end
 
   test "record_sql_segment ignores SCHEMA queries" do

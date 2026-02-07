@@ -52,12 +52,12 @@ module Catpm
 
         duration = event.duration
         sql = payload[:sql].to_s
-        max_len = Catpm.config.max_sql_length
-        sql = sql[0, max_len] + "..." if sql.length > max_len
-
         source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
-        req_segments.add(type: :sql, duration: duration, detail: sql, source: source)
+        req_segments.add(
+          type: :sql, duration: duration, detail: sql,
+          source: source, started_at: event.time
+        )
       end
 
       def record_view_segment(event)
@@ -73,7 +73,10 @@ module Catpm
 
         source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
-        req_segments.add(type: :view, duration: duration, detail: identifier, source: source)
+        req_segments.add(
+          type: :view, duration: duration, detail: identifier,
+          source: source, started_at: event.time
+        )
       end
 
       def extract_source_location

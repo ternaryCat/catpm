@@ -8,6 +8,7 @@ module Catpm
 
         payload = event.payload
         target = "#{payload[:controller]}##{payload[:action]}"
+        return if target.start_with?("Catpm::")
         return if Catpm.config.ignored?(target)
 
         duration = event.duration # milliseconds

@@ -4,11 +4,11 @@
 <div class="grid">
   <div class="card">
     <div class="label">Endpoints</div>
-    <div class="value"><%= @buckets.size %></div>
+    <div class="value"><%= @endpoint_count %></div>
   </div>
   <div class="card">
     <div class="label">Total Requests</div>
-    <div class="value green"><%= @buckets.sum(&:count) %></div>
+    <div class="value green"><%= @total_requests %></div>
   </div>
   <div class="card">
     <div class="label">Errors</div>
@@ -38,7 +38,7 @@
 </div>
 
 <h2>Endpoints</h2>
-<% if @buckets.any? %>
+<% if @endpoints.any? %>
   <table>
     <thead>
       <tr>
@@ -47,24 +47,22 @@
         <th>Operation</th>
         <th>Count</th>
         <th>Avg</th>
-        <th>p95</th>
         <th>Max</th>
         <th>Fail</th>
-        <th>Time</th>
+        <th>Last Seen</th>
       </tr>
     </thead>
     <tbody>
-      <% @buckets.each do |b| %>
-        <tr class="clickable" onclick="window.location='<%= catpm.bucket_path(b) %>'">
-          <td><span class="badge badge-<%= b.kind %>"><%= b.kind %></span></td>
-          <td class="mono"><%= b.target %></td>
-          <td class="mono"><%= b.operation.presence || "—" %></td>
-          <td><%= b.count %></td>
-          <td class="mono"><%= "%.1f" % b.average_duration %>ms</td>
-          <td class="mono"><%= b.p95_digest ? ("%.1f" % b.percentile(0.95)) + "ms" : "—" %></td>
-          <td class="mono"><%= "%.1f" % b.duration_max %>ms</td>
-          <td style="<%= b.failure_count > 0 ? 'color:#f85149' : '' %>"><%= b.failure_count %></td>
-          <td class="mono"><%= b.bucket_start.strftime("%H:%M") %></td>
+      <% @endpoints.each do |ep| %>
+        <tr class="clickable" onclick="window.location='<%= catpm.endpoint_path(kind: ep[:kind], target: ep[:target], operation: ep[:operation]) %>'">
+          <td><span class="badge badge-<%= ep[:kind] %>"><%= ep[:kind] %></span></td>
+          <td class="mono"><%= ep[:target] %></td>
+          <td class="mono"><%= ep[:operation].presence || "—" %></td>
+          <td><%= ep[:total_count] %></td>
+          <td class="mono"><%= "%.1f" % ep[:avg_duration] %>ms</td>
+          <td class="mono"><%= "%.1f" % ep[:max_duration] %>ms</td>
+          <td style="<%= ep[:total_failures] > 0 ? 'color:#f85149' : '' %>"><%= ep[:total_failures] %></td>
+          <td class="mono"><%= ep[:last_seen].strftime("%H:%M") %></td>
         </tr>
       <% end %>
     </tbody>
