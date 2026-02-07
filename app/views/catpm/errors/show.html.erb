@@ -1,0 +1,65 @@
+<% content_for :title, @error.error_class %>
+<% content_for :subtitle do %>
+  <span class="badge badge-<%= @error.kind %>"><%= @error.kind %></span>
+  <strong style="color:#f85149"><%= @error.error_class %></strong>
+  &middot; <%= @error.occurrences_count %> occurrences
+  &middot; <%= @error.resolved? ? "resolved" : "active" %>
+<% end %>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">Occurrences</div>
+    <div class="value red"><%= @error.occurrences_count %></div>
+  </div>
+  <div class="card">
+    <div class="label">First Seen</div>
+    <div class="value" style="font-size:16px"><%= @error.first_occurred_at.strftime("%Y-%m-%d %H:%M") %></div>
+  </div>
+  <div class="card">
+    <div class="label">Last Seen</div>
+    <div class="value" style="font-size:16px"><%= @error.last_occurred_at.strftime("%Y-%m-%d %H:%M") %></div>
+  </div>
+  <div class="card">
+    <div class="label">Status</div>
+    <div class="value" style="font-size:16px; color:<%= @error.resolved? ? '#3fb950' : '#f85149' %>"><%= @error.resolved? ? "Resolved" : "Active" %></div>
+  </div>
+</div>
+
+<h2>Message</h2>
+<div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:12px">
+  <div style="color:#f85149; font-size:14px"><%= @error.message %></div>
+</div>
+
+<h2>Fingerprint</h2>
+<div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:12px">
+  <div class="mono" style="color:#8b949e; word-break:break-all"><%= @error.fingerprint %></div>
+</div>
+
+<% if @contexts.any? %>
+  <h2>Recent Occurrences (<%= @contexts.size %>)</h2>
+  <% @contexts.each_with_index do |ctx, i| %>
+    <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:8px">
+      <div style="display:flex; justify-content:space-between; margin-bottom:8px">
+        <strong style="color:#c9d1d9">#<%= i + 1 %></strong>
+        <span class="mono" style="color:#8b949e"><%= ctx["occurred_at"] || ctx[:occurred_at] %></span>
+      </div>
+
+      <% op = ctx["operation"] || ctx[:operation] || {} %>
+      <% if op.any? %>
+        <div style="margin-bottom:8px">
+          <% op.each do |k, v| %>
+            <span class="kv"><span class="k"><%= k %>:</span> <span class="v"><%= v %></span></span>
+          <% end %>
+        </div>
+      <% end %>
+
+      <% bt = ctx["backtrace"] || ctx[:backtrace] || [] %>
+      <% if bt.any? %>
+        <div style="margin-top:8px">
+          <h3>Backtrace</h3>
+          <pre class="mono" style="color:#8b949e; font-size:11px; white-space:pre-wrap; margin-top:4px"><%= bt.first(10).join("\n") %></pre>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+<% end %>

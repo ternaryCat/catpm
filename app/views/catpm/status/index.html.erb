@@ -1,0 +1,144 @@
+<% content_for :title, "Overview" %>
+<% content_for :subtitle, "Lightweight APM Dashboard" %>
+
+<div class="grid">
+  <div class="card">
+    <div class="label">Endpoints</div>
+    <div class="value"><%= @buckets.size %></div>
+  </div>
+  <div class="card">
+    <div class="label">Total Requests</div>
+    <div class="value green"><%= @buckets.sum(&:count) %></div>
+  </div>
+  <div class="card">
+    <div class="label">Errors</div>
+    <div class="value <%= @errors.any? ? 'red' : '' %>"><%= @errors.size %></div>
+  </div>
+  <div class="card">
+    <div class="label">Samples</div>
+    <div class="value yellow"><%= @samples.size %></div>
+  </div>
+  <div class="card">
+    <div class="label">Flushes</div>
+    <div class="value"><%= @stats[:flushes] %></div>
+  </div>
+  <div class="card">
+    <div class="label">Buffer</div>
+    <div class="value"><%= @buffer_size %></div>
+    <div class="detail"><%= number_to_human_size(@buffer_bytes) %></div>
+  </div>
+  <div class="card">
+    <div class="label">Dropped</div>
+    <div class="value <%= @stats[:dropped_events] > 0 ? 'red' : '' %>"><%= @stats[:dropped_events] %></div>
+  </div>
+  <div class="card">
+    <div class="label">Circuit Opens</div>
+    <div class="value <%= @stats[:circuit_opens] > 0 ? 'red' : '' %>"><%= @stats[:circuit_opens] %></div>
+  </div>
+</div>
+
+<h2>Endpoints</h2>
+<% if @buckets.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Kind</th>
+        <th>Target</th>
+        <th>Operation</th>
+        <th>Count</th>
+        <th>Avg</th>
+        <th>p95</th>
+        <th>Max</th>
+        <th>Fail</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @buckets.each do |b| %>
+        <tr class="clickable" onclick="window.location='<%= catpm.bucket_path(b) %>'">
+          <td><span class="badge badge-<%= b.kind %>"><%= b.kind %></span></td>
+          <td class="mono"><%= b.target %></td>
+          <td class="mono"><%= b.operation.presence || "—" %></td>
+          <td><%= b.count %></td>
+          <td class="mono"><%= "%.1f" % b.average_duration %>ms</td>
+          <td class="mono"><%= b.p95_digest ? ("%.1f" % b.percentile(0.95)) + "ms" : "—" %></td>
+          <td class="mono"><%= "%.1f" % b.duration_max %>ms</td>
+          <td style="<%= b.failure_count > 0 ? 'color:#f85149' : '' %>"><%= b.failure_count %></td>
+          <td class="mono"><%= b.bucket_start.strftime("%H:%M") %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <div class="empty">No data yet. Hit some endpoints and flush!</div>
+<% end %>
+
+<h2>Recent Samples</h2>
+<% if @samples.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Kind</th>
+        <th>Target</th>
+        <th>Duration</th>
+        <th>Segments</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @samples.each do |s| %>
+        <tr class="clickable" onclick="window.location='<%= catpm.sample_path(s) %>'">
+          <td><span class="badge badge-<%= s.sample_type %>"><%= s.sample_type %></span></td>
+          <td><span class="badge badge-<%= s.kind %>"><%= s.kind %></span></td>
+          <td class="mono"><%= s.bucket&.target || "—" %></td>
+          <td class="mono"><%= "%.1f" % s.duration %>ms</td>
+          <td>
+            <% ctx = s.parsed_context; summary = ctx["segment_summary"] || ctx[:segment_summary] %>
+            <% if summary %>
+              <span class="mono" style="color:#8b949e">
+                <%= (summary["sql_count"] || summary[:sql_count] || 0).to_i %> sql,
+                <%= (summary["view_count"] || summary[:view_count] || 0).to_i %> views
+              </span>
+            <% else %>
+              <span style="color:#484f58">—</span>
+            <% end %>
+          </td>
+          <td class="mono"><%= s.recorded_at.strftime("%H:%M:%S") %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <div class="empty">No samples yet.</div>
+<% end %>
+
+<h2>Errors</h2>
+<% if @errors.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>Kind</th>
+        <th>Error Class</th>
+        <th>Message</th>
+        <th>Count</th>
+        <th>Last Seen</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @errors.each do |e| %>
+        <tr class="clickable" onclick="window.location='<%= catpm.error_path(e) %>'">
+          <td><span class="badge badge-<%= e.kind %>"><%= e.kind %></span></td>
+          <td class="mono" style="color:#f85149"><%= e.error_class %></td>
+          <td><%= truncate(e.message, length: 50) %></td>
+          <td><%= e.occurrences_count %></td>
+          <td class="mono"><%= e.last_occurred_at.strftime("%H:%M:%S") %></td>
+          <td><%= e.resolved? ? "resolved" : "active" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <div class="empty">No errors.</div>
+<% end %>

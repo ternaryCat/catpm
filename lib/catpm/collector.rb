@@ -15,6 +15,18 @@ module Catpm
         context = build_http_context(payload)
         metadata = build_http_metadata(payload)
 
+        req_segments = Thread.current[:catpm_request_segments]
+        if req_segments
+          segment_data = req_segments.to_h
+          context[:segments] = segment_data[:segments]
+          context[:segment_summary] = segment_data[:segment_summary]
+          context[:segments_capped] = segment_data[:segments_capped]
+
+          segment_data[:segment_summary].each do |k, v|
+            metadata[k] = v
+          end
+        end
+
         ev = Event.new(
           kind: :http,
           target: target,

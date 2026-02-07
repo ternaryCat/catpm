@@ -21,6 +21,8 @@ module Catpm
             Collector.process_active_job(event)
           end
         end
+
+        SegmentSubscribers.subscribe! if Catpm.config.instrument_segments
       end
 
       def unsubscribe!
@@ -33,6 +35,8 @@ module Catpm
           ActiveSupport::Notifications.unsubscribe(@job_subscriber)
           @job_subscriber = nil
         end
+
+        SegmentSubscribers.unsubscribe!
       end
     end
   end

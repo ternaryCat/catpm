@@ -1,0 +1,437 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# catpm Demo Script
+# Run: bin/demo
+#
+# Simulates a production-like workload and shows how catpm collects,
+# aggregates, and persists APM data.
+
+ENV["RAILS_ENV"] = "development"
+require_relative "../test/dummy/config/environment"
+
+# ─── Colors ───────────────────────────────────────────────────────────
+module C
+  def self.blue(s)    = "\e[34m#{s}\e[0m"
+  def self.green(s)   = "\e[32m#{s}\e[0m"
+  def self.yellow(s)  = "\e[33m#{s}\e[0m"
+  def self.red(s)     = "\e[31m#{s}\e[0m"
+  def self.cyan(s)    = "\e[36m#{s}\e[0m"
+  def self.dim(s)     = "\e[2m#{s}\e[0m"
+  def self.bold(s)    = "\e[1m#{s}\e[0m"
+  def self.magenta(s) = "\e[35m#{s}\e[0m"
+end
+
+def section(title)
+  puts
+  puts C.bold("━━━ #{title} ━━━")
+  puts
+end
+
+def step(msg)
+  print "  #{C.dim("▸")} #{msg}... "
+  result = yield
+  puts C.green("✓")
+  result
+end
+
+def info(msg)
+  puts "  #{C.dim("│")} #{msg}"
+end
+
+# ─── Setup ────────────────────────────────────────────────────────────
+puts
+puts C.bold(C.blue("  ┌─────────────────────────────────┐"))
+puts C.bold(C.blue("  │       catpm Demo Runner          │"))
+puts C.bold(C.blue("  │  Lightweight APM for Rails       │"))
+puts C.bold(C.blue("  └─────────────────────────────────┘"))
+
+section "Setup"
+
+step "Running migrations" do
+  ActiveRecord::MigrationContext.new(
+    ActiveRecord::Migrator.migrations_paths
+  ).migrate
+end
+
+step "Cleaning previous data" do
+  Catpm::Sample.delete_all
+  Catpm::Bucket.delete_all
+  Catpm::ErrorRecord.delete_all
+end
+
+step "Configuring catpm" do
+  Catpm.reset_config!
+  Catpm.reset_stats!
+  Catpm.configure do |c|
+    c.enabled = true
+    c.slow_threshold = 100 # 100ms
+    c.slow_threshold_per_kind = { job: 1000 }
+  end
+end
+
+buffer = step("Creating buffer") { Catpm::Buffer.new(max_bytes: 10.megabytes) }
+Catpm.buffer = buffer
+
+flusher = step("Creating flusher") { Catpm::Flusher.new(buffer: buffer, interval: 30, jitter: 0) }
+
+# ─── Simulate HTTP Requests ──────────────────────────────────────────
+section "Simulating HTTP Requests"
+
+http_scenarios = [
+  { target: "UsersController#index",  op: "GET",    dur: 25.0,  status: 200, n: 15 },
+  { target: "UsersController#show",   op: "GET",    dur: 35.0,  status: 200, n: 8 },
+  { target: "UsersController#create", op: "POST",   dur: 80.0,  status: 201, n: 5 },
+  { target: "PostsController#index",  op: "GET",    dur: 45.0,  status: 200, n: 20 },
+  { target: "PostsController#show",   op: "GET",    dur: 30.0,  status: 200, n: 12 },
+  { target: "PostsController#update", op: "PATCH",  dur: 60.0,  status: 200, n: 4 },
+  { target: "ApiController#search",   op: "GET",    dur: 120.0, status: 200, n: 6 },  # slow!
+  { target: "ApiController#upload",   op: "POST",   dur: 250.0, status: 200, n: 3 },  # very slow!
+]
+
+now = Time.current.change(sec: 0)
+
+http_scenarios.each do |sc|
+  sc[:n].times do |i|
+    # Add some variance to duration
+    variance = (rand - 0.5) * sc[:dur] * 0.4
+    dur = [sc[:dur] + variance, 1.0].max
+
+    # Simulate segments for each request
+    sql_count = rand(3..15)
+    view_count = rand(1..4)
+    sql_dur_total = dur * 0.3
+    view_dur_total = dur * 0.2
+
+    segments = []
+    sql_count.times do |j|
+      sql_dur = sql_dur_total / sql_count * (0.5 + rand)
+      table = %w[users posts comments tags sessions].sample
+      segments << {
+        type: "sql", duration: sql_dur.round(2),
+        detail: "SELECT \"#{table}\".* FROM \"#{table}\" WHERE \"#{table}\".\"id\" = ?",
+        source: sql_dur > 5 ? "app/models/#{table.singularize}.rb:#{rand(10..80)}" : nil
+      }.compact
+    end
+    view_count.times do |j|
+      v_dur = view_dur_total / view_count * (0.5 + rand)
+      action = sc[:target].split("#").last
+      controller = sc[:target].split("#").first.underscore.sub("_controller", "")
+      partial = j > 0 ? "_#{controller.singularize}" : action
+      segments << {
+        type: "view", duration: v_dur.round(2),
+        detail: "app/views/#{controller}/#{partial}.html.erb"
+      }
+    end
+
+    context = {
+      method: sc[:op],
+      path: "/#{sc[:target].split('#').last}",
+      segments: segments,
+      segment_summary: {
+        sql_count: sql_count, sql_duration: sql_dur_total.round(2),
+        view_count: view_count, view_duration: view_dur_total.round(2)
+      },
+      segments_capped: false
+    }
+
+    metadata = {
+      db_runtime: sql_dur_total,
+      view_runtime: view_dur_total,
+      sql_count: sql_count,
+      sql_duration: sql_dur_total,
+      view_count: view_count,
+      view_duration: view_dur_total
+    }
+
+    event = Catpm::Event.new(
+      kind: :http,
+      target: sc[:target],
+      operation: sc[:op],
+      duration: dur,
+      started_at: now,
+      status: sc[:status],
+      metadata: metadata,
+      context: context
+    )
+    buffer.push(event)
+  end
+  info "#{C.cyan(sc[:target])} #{C.dim(sc[:op])} × #{sc[:n]}  #{C.dim("~#{sc[:dur].to_i}ms")}"
+end
+
+puts
+info "#{C.bold(buffer.size.to_s)} events in buffer (#{(buffer.current_bytes / 1024.0).round(1)} KB)"
+
+# ─── Simulate Errors ─────────────────────────────────────────────────
+section "Simulating Errors"
+
+error_scenarios = [
+  { target: "PaymentsController#create", error_class: "Stripe::CardError", msg: "Your card was declined", n: 4 },
+  { target: "UsersController#create",    error_class: "ActiveRecord::RecordInvalid", msg: "Validation failed: Email has already been taken", n: 2 },
+  { target: "ApiController#search",      error_class: "Timeout::Error", msg: "execution expired", n: 7 },
+]
+
+error_scenarios.each do |sc|
+  sc[:n].times do
+    event = Catpm::Event.new(
+      kind: :http,
+      target: sc[:target],
+      operation: "POST",
+      duration: 50.0 + rand(100),
+      started_at: now,
+      status: 500,
+      error_class: sc[:error_class],
+      error_message: sc[:msg],
+      backtrace: [
+        "app/controllers/#{sc[:target].split('#').first.underscore}.rb:#{rand(10..50)}:in `#{sc[:target].split('#').last}'",
+        "app/services/#{sc[:target].split('#').first.underscore.sub('_controller', '')}_service.rb:#{rand(10..30)}:in `call'",
+        "app/models/user.rb:#{rand(20..80)}:in `validate'"
+      ]
+    )
+    buffer.push(event)
+  end
+  info "#{C.red(sc[:error_class])} in #{sc[:target]} × #{sc[:n]}"
+end
+
+# ─── Simulate Background Jobs ────────────────────────────────────────
+section "Simulating Background Jobs"
+
+job_scenarios = [
+  { target: "SendEmailJob",       queue: "mailers",  dur: 300.0, n: 10 },
+  { target: "ProcessPaymentJob",  queue: "critical", dur: 500.0, n: 5 },
+  { target: "GenerateReportJob",  queue: "default",  dur: 2500.0, n: 2 }, # slow job!
+  { target: "CleanupJob",         queue: "low",      dur: 150.0, n: 8 },
+]
+
+job_scenarios.each do |sc|
+  sc[:n].times do
+    variance = (rand - 0.5) * sc[:dur] * 0.3
+    event = Catpm::Event.new(
+      kind: :job,
+      target: sc[:target],
+      operation: sc[:queue],
+      duration: [sc[:dur] + variance, 10.0].max,
+      started_at: now,
+      metadata: { queue_wait: rand(100..5000).to_f },
+      context: { job_class: sc[:target], queue: sc[:queue], attempts: 1 }
+    )
+    buffer.push(event)
+  end
+  info "#{C.magenta(sc[:target])} [#{sc[:queue]}] × #{sc[:n]}  #{C.dim("~#{sc[:dur].to_i}ms")}"
+end
+
+# ─── Custom Traces ───────────────────────────────────────────────────
+section "Simulating Custom Traces"
+
+step "Catpm.trace(\"PaymentProcessing\") { ... }" do
+  Catpm.trace("PaymentProcessing", metadata: { provider: "stripe", amount: 149.99 }) do
+    sleep(0.05)
+  end
+end
+
+step "Catpm.trace(\"TelegramPoller#handle\") { ... }" do
+  5.times do
+    Catpm.trace("TelegramPoller#handle", metadata: { update_type: "message", chat_id: rand(1000) }) do
+      sleep(0.005 + rand * 0.01)
+    end
+  end
+end
+
+step "Catpm.start_trace / span.finish" do
+  span = Catpm.start_trace("DataImport", metadata: { file: "users.csv", rows: 1500 })
+  sleep(0.03)
+  span.finish
+end
+
+# Trace with error
+step "Catpm.trace with error" do
+  begin
+    Catpm.trace("ExternalAPICall", metadata: { service: "geocoding" }) do
+      sleep(0.01)
+      raise RuntimeError, "Connection refused - connect(2) for api.example.com:443"
+    end
+  rescue RuntimeError
+    # expected
+  end
+end
+
+# ─── Flush ────────────────────────────────────────────────────────────
+section "Flushing to Database"
+
+info "Buffer: #{C.bold(buffer.size.to_s)} events, #{(buffer.current_bytes / 1024.0).round(1)} KB"
+puts
+
+step "flush_cycle" do
+  flusher.flush_cycle
+end
+
+# ─── Results ──────────────────────────────────────────────────────────
+section "Results"
+
+puts "  #{C.bold("Buckets:")} #{C.green(Catpm::Bucket.count.to_s)}"
+puts "  #{C.bold("Samples:")} #{C.yellow(Catpm::Sample.count.to_s)}"
+puts "  #{C.bold("Errors:")}  #{C.red(Catpm::ErrorRecord.count.to_s)}"
+puts "  #{C.bold("Flushes:")} #{Catpm.stats[:flushes]}"
+puts
+
+# ─── Buckets Table ────────────────────────────────────────────────────
+section "Buckets (Aggregated Metrics)"
+
+fmt = "  %-8s %-35s %-7s %6s %8s %8s %8s %8s %5s"
+puts C.dim(fmt % ["KIND", "TARGET", "OP", "COUNT", "AVG(ms)", "MIN(ms)", "MAX(ms)", "P95(ms)", "FAIL"])
+puts C.dim("  " + "─" * 105)
+
+Catpm::Bucket.order(:kind, :target).each do |b|
+  p95 = b.p95_digest ? ("%.1f" % b.percentile(0.95)) : "—"
+  avg = "%.1f" % b.average_duration
+
+  kind_color = case b.kind
+               when "http" then :cyan
+               when "job" then :magenta
+               else :yellow
+               end
+
+  fail_str = b.failure_count > 0 ? C.red(b.failure_count.to_s) : "0"
+
+  puts fmt % [
+    C.send(kind_color, b.kind),
+    b.target,
+    b.operation.presence || "—",
+    b.count,
+    avg,
+    "%.1f" % b.duration_min,
+    "%.1f" % b.duration_max,
+    p95,
+    fail_str
+  ]
+end
+
+# ─── Samples ──────────────────────────────────────────────────────────
+section "Samples (Individual Traces)"
+
+fmt = "  %-8s %-8s %-35s %10s"
+puts C.dim(fmt % ["TYPE", "KIND", "TARGET", "DURATION"])
+puts C.dim("  " + "─" * 65)
+
+Catpm::Sample.includes(:bucket).order(duration: :desc).limit(15).each do |s|
+  type_color = case s.sample_type
+               when "slow" then :yellow
+               when "error" then :red
+               else :green
+               end
+
+  target = s.bucket&.target || "—"
+  puts fmt % [
+    C.send(type_color, s.sample_type),
+    s.kind,
+    target,
+    "%.1f ms" % s.duration
+  ]
+end
+
+remaining = Catpm::Sample.count - 15
+puts C.dim("  ... and #{remaining} more") if remaining > 0
+
+# ─── Errors ───────────────────────────────────────────────────────────
+section "Errors"
+
+fmt = "  %-8s %-30s %-45s %5s"
+puts C.dim(fmt % ["KIND", "ERROR CLASS", "MESSAGE", "COUNT"])
+puts C.dim("  " + "─" * 92)
+
+Catpm::ErrorRecord.order(occurrences_count: :desc).each do |e|
+  msg = e.message.length > 43 ? e.message[0..40] + "..." : e.message
+  puts fmt % [
+    C.cyan(e.kind),
+    C.red(e.error_class),
+    msg,
+    e.occurrences_count
+  ]
+end
+
+# ─── TDigest Demo ─────────────────────────────────────────────────────
+section "Percentile Distribution (TDigest)"
+
+Catpm::Bucket.where(kind: "http").where("count > 5").order(:target).limit(5).each do |b|
+  next unless b.p95_digest
+
+  td = Catpm::TDigest.deserialize(b.p95_digest)
+  p50 = td.percentile(0.50)
+  p90 = td.percentile(0.90)
+  p95 = td.percentile(0.95)
+  p99 = td.percentile(0.99)
+
+  puts "  #{C.cyan(b.target)} #{C.dim("(#{b.count} requests)")}"
+  puts "    p50=#{C.green("%.1f" % p50)}ms  p90=#{C.yellow("%.1f" % p90)}ms  p95=#{C.yellow("%.1f" % p95)}ms  p99=#{C.red("%.1f" % p99)}ms"
+  puts
+end
+
+# ─── Segments Demo ─────────────────────────────────────────────────────
+section "Request Drill-Down (Segments)"
+
+Catpm::Sample.where(sample_type: "slow").order(duration: :desc).limit(3).each do |s|
+  ctx = s.parsed_context
+  segments = ctx["segments"] || ctx[:segments] || []
+  summary = ctx["segment_summary"] || ctx[:segment_summary] || {}
+  target = s.bucket&.target || "unknown"
+
+  puts "  #{C.bold(target)} #{C.dim("(#{s.sample_type}, #{"%.1f" % s.duration}ms)")}"
+
+  if summary.any?
+    parts = []
+    sql_count = summary["sql_count"] || summary[:sql_count] || 0
+    sql_dur = summary["sql_duration"] || summary[:sql_duration] || 0
+    view_count = summary["view_count"] || summary[:view_count] || 0
+    view_dur = summary["view_duration"] || summary[:view_duration] || 0
+    parts << "#{sql_count.to_i} SQL (#{"%.1f" % sql_dur}ms)" if sql_count.to_i > 0
+    parts << "#{view_count.to_i} views (#{"%.1f" % view_dur}ms)" if view_count.to_i > 0
+    puts "    #{C.dim("Summary:")} #{parts.join(", ")}"
+  end
+
+  if segments.any?
+    sorted = segments.sort_by { |seg| -(seg["duration"] || seg[:duration] || 0) }
+    sorted.first(5).each do |seg|
+      type = seg["type"] || seg[:type]
+      dur = seg["duration"] || seg[:duration]
+      detail = seg["detail"] || seg[:detail]
+      source = seg["source"] || seg[:source]
+      detail = detail.to_s[0..80]
+
+      type_color = type == "sql" ? :cyan : :yellow
+      puts "    #{C.send(type_color, type.ljust(5))} #{C.bold("%.1f" % dur)}ms  #{C.dim(detail)}"
+      puts "    #{" " * 6}#{C.green("→ #{source}")}" if source
+    end
+  else
+    puts "    #{C.dim("(no segments captured)")}"
+  end
+  puts
+end
+
+# ─── Bucket Breakdown ─────────────────────────────────────────────────
+section "Bucket Breakdown (Aggregated Segments)"
+
+Catpm::Bucket.where(kind: "http").where("count > 3").order(:target).limit(5).each do |b|
+  meta = b.parsed_metadata_sum
+  sql_count = meta["sql_count"].to_f
+  sql_dur = meta["sql_duration"].to_f
+  view_count = meta["view_count"].to_f
+  view_dur = meta["view_duration"].to_f
+  next if sql_count == 0 && view_count == 0
+
+  avg_sql = b.count > 0 ? sql_count / b.count : 0
+  avg_sql_dur = b.count > 0 ? sql_dur / b.count : 0
+  avg_view = b.count > 0 ? view_count / b.count : 0
+  avg_view_dur = b.count > 0 ? view_dur / b.count : 0
+
+  puts "  #{C.cyan(b.target)} #{C.dim("(#{b.count} requests, avg #{"%.1f" % b.average_duration}ms)")}"
+  puts "    Avg per request: #{C.bold("%.0f" % avg_sql)} SQL (#{"%.1f" % avg_sql_dur}ms), #{C.bold("%.0f" % avg_view)} views (#{"%.1f" % avg_view_dur}ms)"
+  puts
+end
+
+# ─── Footer ───────────────────────────────────────────────────────────
+puts
+puts C.dim("  ─────────────────────────────────────────────────────────────")
+puts "  #{C.bold("Interactive demo:")} cd test/dummy && bin/rails s"
+puts "  Then visit: #{C.blue("http://localhost:3000/demo")}"
+puts "  Status page: #{C.blue("http://localhost:3000/catpm/status")}"
+puts

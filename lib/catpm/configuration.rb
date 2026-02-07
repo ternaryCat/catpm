@@ -5,6 +5,10 @@ module Catpm
     attr_accessor :enabled,
                   :instrument_http,
                   :instrument_jobs,
+                  :instrument_segments,
+                  :max_segments_per_request,
+                  :segment_source_threshold,
+                  :max_sql_length,
                   :slow_threshold,
                   :slow_threshold_per_kind,
                   :ignored_targets,
@@ -24,6 +28,10 @@ module Catpm
       @enabled = true
       @instrument_http = true
       @instrument_jobs = false
+      @instrument_segments = true
+      @max_segments_per_request = 50
+      @segment_source_threshold = 5.0 # ms — only capture caller_locations above this
+      @max_sql_length = 200
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}
       @ignored_targets = []

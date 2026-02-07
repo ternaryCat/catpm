@@ -1,17 +1,72 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Catpm</title>
-  <%= csrf_meta_tags %>
-  <%= csp_meta_tag %>
-
-  <%= yield :head %>
-
-  <%= stylesheet_link_tag    "catpm/application", media: "all" %>
+  <title>catpm<%= " — #{yield :title}" if content_for?(:title) %></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #0d1117; color: #c9d1d9; padding: 24px; line-height: 1.6; }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { color: #58a6ff; margin-bottom: 4px; font-size: 22px; }
+    h2 { color: #c9d1d9; margin: 24px 0 12px; font-size: 17px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+    h3 { color: #8b949e; margin: 16px 0 8px; font-size: 14px; }
+    .subtitle { color: #8b949e; margin-bottom: 20px; font-size: 13px; }
+    .nav { margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .nav a { background: #21262d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; font-size: 13px; display: inline-block; }
+    .nav a:hover { background: #30363d; border-color: #58a6ff; text-decoration: none; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; }
+    .card .label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card .value { color: #f0f6fc; font-size: 26px; font-weight: 600; margin-top: 2px; }
+    .card .value.green { color: #3fb950; }
+    .card .value.yellow { color: #d29922; }
+    .card .value.red { color: #f85149; }
+    .card .detail { color: #8b949e; font-size: 11px; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; background: #161b22; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+    th { background: #21262d; color: #8b949e; text-align: left; padding: 7px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 7px 12px; border-top: 1px solid #21262d; font-size: 13px; }
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover td { background: #1c2128; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-http { background: #1f3a5f; color: #58a6ff; }
+    .badge-job { background: #2a1f3f; color: #bc8cff; }
+    .badge-custom { background: #3f2f1f; color: #d29922; }
+    .badge-slow { background: #3f2f1f; color: #d29922; }
+    .badge-error { background: #3f1f1f; color: #f85149; }
+    .badge-random { background: #1f3f2a; color: #3fb950; }
+    .badge-sql { background: #1f3a5f; color: #58a6ff; }
+    .badge-view { background: #2a1f3f; color: #bc8cff; }
+    .mono { font-family: "SF Mono", "Fira Code", Consolas, monospace; font-size: 12px; }
+    .empty { color: #484f58; text-align: center; padding: 32px; font-style: italic; }
+    .source { color: #3fb950; font-size: 11px; font-family: "SF Mono", monospace; }
+    .sql-text { color: #79c0ff; font-size: 11px; font-family: "SF Mono", monospace; word-break: break-all; }
+    .kv { display: inline-block; background: #21262d; border-radius: 4px; padding: 2px 8px; margin: 2px; font-size: 12px; }
+    .kv .k { color: #8b949e; }
+    .kv .v { color: #f0f6fc; }
+    .footer { margin-top: 32px; color: #484f58; font-size: 12px; text-align: center; }
+    .bar-container { position: relative; height: 20px; background: #21262d; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+    .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 6px; font-size: 10px; color: #fff; min-width: fit-content; }
+    .bar-sql { background: #1f6feb; }
+    .bar-view { background: #8957e5; }
+    .bar-other { background: #484f58; }
+    .segment-row { border-bottom: 1px solid #21262d; padding: 6px 0; }
+    .segment-row:last-child { border-bottom: none; }
+  </style>
 </head>
 <body>
+  <h1><a href="<%= catpm.status_index_path %>" style="color: #58a6ff">catpm</a></h1>
+  <div class="subtitle"><%= yield :subtitle if content_for?(:subtitle) %></div>
 
-<%= yield %>
+  <div class="nav">
+    <a href="<%= catpm.status_index_path %>">Overview</a>
+    <% if defined?(main_app) && main_app.respond_to?(:root_path) %>
+      <a href="<%= main_app.root_path rescue '#' %>">App</a>
+    <% end %>
+  </div>
 
+  <%= yield %>
+
+  <div class="footer">catpm v<%= Catpm::VERSION %> &middot; <%= Time.current.strftime("%Y-%m-%d %H:%M:%S") %></div>
 </body>
 </html>

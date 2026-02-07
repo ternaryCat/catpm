@@ -10,10 +10,21 @@ module Catpm
       return @app.call(env) unless Catpm.enabled?
 
       env["catpm.request_start"] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      if Catpm.config.instrument_segments
+        req_segments = RequestSegments.new(
+          max_segments: Catpm.config.max_segments_per_request
+        )
+        env["catpm.segments"] = req_segments
+        Thread.current[:catpm_request_segments] = req_segments
+      end
+
       @app.call(env)
     rescue Exception => e # rubocop:disable Lint/RescueException
       record_exception(env, e)
       raise
+    ensure
+      Thread.current[:catpm_request_segments] = nil if Catpm.config.instrument_segments
     end
 
     private
