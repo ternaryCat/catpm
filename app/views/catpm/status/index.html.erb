@@ -125,34 +125,3 @@
   </div>
 <% end %>
 
-<%# ─── Recent Samples ─── %>
-<h2>Recent Samples</h2>
-<% if @samples.any? %>
-  <div class="table-scroll">
-  <table>
-    <thead>
-      <tr>
-        <th>Type</th>
-        <th>Target</th>
-        <th>Duration</th>
-        <th>Time</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @samples.each do |s| %>
-        <tr class="linked">
-          <td><a href="<%= catpm.sample_path(s) %>" class="row-link"><%= type_badge(s.sample_type) %></a></td>
-          <td class="mono"><%= s.bucket&.target || "—" %></td>
-          <td class="mono"><%= format_duration(s.duration) %></td>
-          <td><%= time_with_tooltip(s.recorded_at) %></td>
-        </tr>
-      <% end %>
-    </tbody>
-  </table>
-  </div>
-<% else %>
-  <div class="empty-state">
-    <div class="empty-title">No samples yet</div>
-    <div class="empty-hint">Samples are captured automatically for slow, random, and error requests.</div>
-  </div>
-<% end %>

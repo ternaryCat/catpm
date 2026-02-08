@@ -69,7 +69,6 @@
 <%# ─── Occurrences ─── %>
 <% if @contexts.any? %>
   <h2>Last <%= @contexts.size %> Captured Occurrences</h2>
-  <%= section_description("Click a row to expand details.") %>
   <div class="table-scroll">
   <table>
     <thead>
@@ -85,8 +84,8 @@
     <tbody>
       <% @contexts.each_with_index do |ctx, i| %>
         <% segments = ctx["segments"] || ctx[:segments] || [] %>
-        <% has_detail = segments.any? || (ctx["operation"] || ctx[:operation] || {}).any? %>
-        <tr id="occurrence-<%= i + 1 %>" class="<%= 'expandable' if has_detail %>" data-occurrence="<%= i %>" <%= "onclick=\"toggleOccurrence(this)\"" if has_detail %>>
+        <% has_detail = segments.any? %>
+        <tr id="occurrence-<%= i + 1 %>" class="<%= 'expandable' if has_detail %>" data-occurrence="<%= i %>" <% if has_detail %>onclick="toggleOccurrence(this)"<% end %>>
           <td class="mono text-muted"><% if has_detail %><span class="chevron">&#x25B8;</span> <% end %>#<%= i + 1 %></td>
           <td><%= time_with_tooltip(ctx["occurred_at"] || ctx[:occurred_at]) %></td>
           <td class="mono"><%= (ctx["duration"] || ctx[:duration]) ? format_duration((ctx["duration"] || ctx[:duration]).to_f) : "—" %></td>
@@ -97,18 +96,7 @@
         <% if has_detail %>
           <tr id="detail-<%= i %>" style="display:none">
             <td colspan="6" style="padding:14px; background:var(--bg-1)">
-              <% op = ctx["operation"] || ctx[:operation] || {} %>
-              <% if op.any? %>
-                <div style="margin-bottom:8px">
-                  <% op.each do |k, v| %>
-                    <span class="kv"><span class="k"><%= k %>:</span> <span class="v"><%= v %></span></span>
-                  <% end %>
-                </div>
-              <% end %>
-              <% if segments.any? %>
-                <h3>Segments (<%= segments.size %><%= ctx["segments_capped"] || ctx[:segments_capped] ? " — capped" : "" %>)</h3>
-                <%= render "catpm/shared/segments_waterfall", segments: segments, total_duration: (ctx["duration"] || ctx[:duration] || 1), segments_capped: ctx["segments_capped"] || ctx[:segments_capped], table_id: "segments-table-#{i}" %>
-              <% end %>
+              <%= render "catpm/shared/segments_waterfall", segments: segments, total_duration: (ctx["duration"] || ctx[:duration] || 1), segments_capped: ctx["segments_capped"] || ctx[:segments_capped], table_id: "segments-table-#{i}" %>
             </td>
           </tr>
         <% end %>

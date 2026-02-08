@@ -9,37 +9,41 @@
 
 <%# ─── Pipeline ─── %>
 <h2>Data Pipeline</h2>
-<%= section_description("Every request flows through this pipeline. Events are buffered in memory and flushed to the database periodically.") %>
+<%= section_description("How requests flow from your app to the catpm database.") %>
 
 <div class="pipeline">
   <div class="pipeline-node">
+    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="14" r="9"/><path d="M14 9v5l3.5 3.5"/></svg></div>
     <div class="node-label">Capture</div>
     <div class="node-value" style="font-size:14px">Middleware</div>
-    <div class="node-detail">Rack middleware intercepts every request and records timing, segments, and errors</div>
+    <div class="node-detail">A Rack middleware wraps each request, measures total duration, and collects SQL, view, cache, and HTTP segments along the way.</div>
   </div>
   <div class="pipeline-arrow">
     <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </div>
   <div class="pipeline-node">
+    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="16" height="20" rx="2"/><line x1="10" y1="10" x2="18" y2="10"/><line x1="10" y1="14" x2="18" y2="14"/><line x1="10" y1="18" x2="15" y2="18"/></svg></div>
     <div class="node-label">Buffer</div>
     <div class="node-value"><%= @buffer_size %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">events</span></div>
-    <div class="node-detail">Events queue in a thread-safe memory buffer (<%= number_to_human_size(@buffer_bytes) %> used, max <%= number_to_human_size(@config.max_buffer_memory) %>)<br><% if @stats[:dropped_events] > 0 %><span style="color:var(--red)"><%= @stats[:dropped_events] %> dropped when buffer was full</span><% else %><span class="pulse" style="background:var(--green)"></span> healthy, no drops<% end %></div>
+    <div class="node-detail">Finished requests are added to a thread-safe in-memory queue. Currently using <%= number_to_human_size(@buffer_bytes) %> of <%= number_to_human_size(@config.max_buffer_memory) %> max.<br><% if @stats[:dropped_events] > 0 %><span style="color:var(--red)"><%= @stats[:dropped_events] %> events dropped (buffer was full)</span><% else %><span class="pulse" style="background:var(--green)"></span> no drops<% end %></div>
   </div>
   <div class="pipeline-arrow">
     <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </div>
   <div class="pipeline-node">
+    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,22 10,16 15,19 24,8"/><polyline points="18,8 24,8 24,14"/></svg></div>
     <div class="node-label">Flush</div>
-    <div class="node-value"><%= @stats[:flushes] %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">times</span></div>
-    <div class="node-detail">A background thread drains the buffer every ~<%= @config.flush_interval %>s, aggregating into time-bucketed stats<br><% if @stats[:circuit_opens] > 0 %><span style="color:var(--yellow)"><%= @stats[:circuit_opens] %> circuit opens (DB errors)</span><% else %><span class="pulse" style="background:var(--green)"></span> circuit healthy<% end %></div>
+    <div class="node-value"><%= @stats[:flushes] %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">flushes</span></div>
+    <div class="node-detail">Every ~<%= @config.flush_interval %>s a background thread drains the buffer, aggregates events into time buckets, and writes them to the database in bulk.<br><% if @stats[:circuit_opens] > 0 %><span style="color:var(--yellow)"><%= @stats[:circuit_opens] %> circuit opens (DB write failures)</span><% else %><span class="pulse" style="background:var(--green)"></span> circuit healthy<% end %></div>
   </div>
   <div class="pipeline-arrow">
     <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </div>
   <div class="pipeline-node">
+    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="8" rx="8" ry="4"/><path d="M6 8v12c0 2.2 3.58 4 8 4s8-1.8 8-4V8"/><path d="M6 14c0 2.2 3.58 4 8 4s8-1.8 8-4"/></svg></div>
     <div class="node-label">Database</div>
     <div class="node-value"><%= @bucket_count %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">buckets</span></div>
-    <div class="node-detail"><%= @sample_count %> samples and <%= @error_count %> error fingerprints stored<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{(@config.retention_period / 1.day).to_i}d" : "No data yet" %></div>
+    <div class="node-detail">Aggregated stats are stored as time buckets, plus <%= @sample_count %> detailed samples and <%= @error_count %> error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{(@config.retention_period / 1.day).to_i} days." : "No data yet." %></div>
   </div>
 </div>
 

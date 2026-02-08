@@ -78,7 +78,6 @@ module Catpm
       @endpoints = endpoints.drop((@page - 1) * PER_PAGE).first(PER_PAGE)
       @endpoint_count = @endpoints.size
 
-      @samples = Catpm::Sample.order(recorded_at: :desc).limit(20)
       @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
   end

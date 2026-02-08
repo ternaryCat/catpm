@@ -179,11 +179,12 @@
 
     /* ─── Code / Backtrace ─── */
     .source { color: var(--green); font-size: 12px; font-family: var(--font-mono); }
-    .sql-text { color: var(--accent); font-size: 12px; font-family: var(--font-mono); word-break: break-all; }
-    .sql-expandable { display: inline-block; max-height: 1.4em; overflow: hidden; cursor: pointer; vertical-align: top; }
-    .sql-expandable::after { content: " \25B8"; color: var(--text-2); }
-    .sql-expandable.expanded { max-height: none; white-space: pre-wrap; }
-    .sql-expandable.expanded::after { content: " \25BE"; }
+    .sql-text { color: var(--accent); font-size: 12px; font-family: var(--font-mono); white-space: pre-wrap; word-break: break-all; }
+    .sql-wrap { display: flex; align-items: flex-start; gap: 2px; }
+    .sql-wrap .sql-text { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+    .sql-wrap.open .sql-text { display: block; -webkit-line-clamp: unset; overflow: visible; white-space: pre-wrap; }
+    .sql-toggle { flex-shrink: 0; color: var(--text-2); font-size: 11px; cursor: pointer; padding: 0 4px; border-radius: 3px; user-select: none; line-height: 1.6; }
+    .sql-toggle:hover { color: var(--text-0); background: var(--bg-2); }
     .backtrace-app { color: var(--text-0); font-weight: 500; }
     .backtrace-lib { color: var(--text-2); }
     .kv { display: inline-block; background: var(--bg-1); border: 1px solid var(--border); border-radius: 3px; padding: 2px 8px; margin: 2px; font-size: 13px; }
@@ -235,7 +236,7 @@
     .pipeline-node .node-label { font-size: 11px; color: var(--text-1); text-transform: uppercase; letter-spacing: 0.5px; }
     .pipeline-node .node-value { font-size: 22px; font-weight: 600; color: var(--text-0); margin-top: 4px; }
     .pipeline-node .node-detail { font-size: 12px; color: var(--text-2); margin-top: 4px; line-height: 1.4; }
-    .pipeline-node .node-icon { font-size: 24px; margin-bottom: 4px; }
+    .pipeline-node .node-icon { margin-bottom: 6px; line-height: 1; opacity: 0.5; }
     .pipeline-arrow { color: var(--text-2); font-size: 22px; padding: 0 6px; display: flex; align-items: center; }
     @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; animation: pulse-dot 2s ease-in-out infinite; }

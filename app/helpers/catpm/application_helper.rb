@@ -6,14 +6,14 @@ module Catpm
     SEGMENT_COLORS = {
       "sql" => "#b8e4c6", "view" => "#e4d4f4", "cache" => "#fdd8b5",
       "http" => "#f9c4c0", "mailer" => "#e4d4f4", "storage" => "#fdd8b5",
-      "custom" => "#dde2e8", "code" => "#dde2e8", "controller" => "#b6d9f7",
+      "custom" => "#dde2e8", "code" => "#c8daf0", "controller" => "#b6d9f7",
       "middleware" => "#f0dfa0", "request" => "#b6d9f7"
     }.freeze
 
     SEGMENT_TEXT_COLORS = {
       "sql" => "#1a7f37", "view" => "#6639a6", "cache" => "#953800",
       "http" => "#a1110a", "mailer" => "#6639a6", "storage" => "#953800",
-      "custom" => "#4b5563", "code" => "#4b5563", "controller" => "#0550ae",
+      "custom" => "#4b5563", "code" => "#3b5998", "controller" => "#0550ae",
       "middleware" => "#7c5c00", "request" => "#0550ae"
     }.freeze
 

@@ -100,8 +100,13 @@
                   <span class="seg-toggle" data-seg="<%= seg_idx %>" onclick="toggleSegment(this)" title="Collapse/Expand">&#x25BE;</span>
                 <% end %>
                 <% if depth > 0 %><span class="tree-indent"><%= prefix %></span><% end %>
-                <% if type == "sql" %>
-                  <span class="sql-text<%= detail.length > 60 ? ' sql-expandable' : '' %>" <%= detail.length > 60 ? 'onclick="this.classList.toggle(\'expanded\')" title="Click to expand"' : '' %>><%= detail %></span>
+                <% if type == "sql" && detail.length > 60 %>
+                  <div class="sql-wrap" onclick="event.stopPropagation()">
+                    <span class="sql-toggle" onclick="var w=this.parentElement;w.classList.toggle('open');this.textContent=w.classList.contains('open')?'\u25BE':'\u25B8'">&#x25B8;</span>
+                    <span class="sql-text"><%= detail %></span>
+                  </div>
+                <% elsif type == "sql" %>
+                  <span class="sql-text"><%= detail %></span>
                 <% else %>
                   <span class="mono"><%= detail %></span>
                 <% end %>
