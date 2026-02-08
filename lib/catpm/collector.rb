@@ -59,6 +59,28 @@ module Catpm
             end
           end
 
+          # Inject synthetic "execution" segment for untracked controller time
+          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          if ctrl_idx
+            ctrl_seg = segments[ctrl_idx]
+            ctrl_dur = (ctrl_seg[:duration] || 0).to_f
+            child_dur = segments.each_with_index.sum do |pair|
+              seg, i = pair
+              next 0.0 if i == ctrl_idx
+              (seg[:parent_index] == ctrl_idx) ? (seg[:duration] || 0).to_f : 0.0
+            end
+            gap = ctrl_dur - child_dur
+            if gap > 1.0
+              segments << {
+                type: "code",
+                detail: "Controller execution (serialization, callbacks, etc.)",
+                duration: gap.round(2),
+                offset: (ctrl_seg[:offset] || 0.0),
+                parent_index: ctrl_idx
+              }
+            end
+          end
+
           context[:segments] = segments
           context[:segment_summary] = segment_data[:segment_summary]
           context[:segments_capped] = segment_data[:segments_capped]

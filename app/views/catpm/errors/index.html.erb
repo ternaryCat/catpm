@@ -1,0 +1,70 @@
+<% content_for :title, "Errors" %>
+<% content_for :subtitle, "#{@active_count} active, #{@resolved_count} resolved" %>
+
+<div class="breadcrumbs">
+  <a href="<%= catpm.status_index_path %>">Overview</a>
+  <span class="sep">/</span>
+  <span>Errors</span>
+</div>
+
+<div class="tabs">
+  <a href="<%= catpm.errors_path(tab: "active") %>" class="tab <%= 'active' if @tab == 'active' %>">Active (<%= @active_count %>)</a>
+  <a href="<%= catpm.errors_path(tab: "resolved") %>" class="tab <%= 'active' if @tab == 'resolved' %>">Resolved (<%= @resolved_count %>)</a>
+</div>
+
+<% if @errors.any? || @kind_filter.present? %>
+  <div class="filters">
+    <% @available_kinds.each do |k| %>
+      <a href="<%= catpm.errors_path(tab: @tab, kind: @kind_filter == k ? nil : k) %>" class="filter-pill<%= ' active' if @kind_filter == k %>"><%= k %></a>
+    <% end %>
+    <input type="text" class="search-input" id="error-search" placeholder="Search errors... (/)" oninput="filterByText('error-search','errors-table')">
+    <% if @tab == "active" && @active_count > 0 %>
+      <span style="display:inline; margin-left:auto"><%= button_to "Resolve all", catpm.resolve_all_errors_path, method: :post, class: "btn", data: { confirm: "Resolve all #{@active_count} active errors?" } %></span>
+    <% end %>
+  </div>
+<% end %>
+
+<% extra = { tab: @tab }; extra[:kind] = @kind_filter if @kind_filter %>
+
+<% if @errors.any? %>
+  <div class="table-scroll">
+  <table id="errors-table">
+    <thead>
+      <tr>
+        <th>Kind</th>
+        <th><%= sort_header("Error Class", "error_class", @sort, @dir, extra_params: extra) %></th>
+        <th>Message</th>
+        <th><%= sort_header("Count", "occurrences_count", @sort, @dir, extra_params: extra) %></th>
+        <th>Trend</th>
+        <th><%= sort_header("Last Seen", "last_occurred_at", @sort, @dir, extra_params: extra) %></th>
+        <% if @tab == "resolved" %><th>Resolved</th><% end %>
+      </tr>
+    </thead>
+    <tbody>
+      <% @errors.each do |e| %>
+        <tr class="linked">
+          <td><a href="<%= catpm.error_path(e) %>" class="row-link"><%= type_badge(e.kind) %></a></td>
+          <td class="mono"><%= e.error_class %></td>
+          <td style="color:var(--text-1)"><%= truncate(e.message, length: 60) %></td>
+          <td<%= " style=\"font-weight:600\"".html_safe if e.occurrences_count >= 10 %>><%= e.occurrences_count %></td>
+          <td><%= trend_indicator(e) %></td>
+          <td><%= time_with_tooltip(e.last_occurred_at) %></td>
+          <% if @tab == "resolved" %><td><%= time_with_tooltip(e.resolved_at) %></td><% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  </div>
+  <% page_extra = extra.merge(sort: @sort, dir: @dir) %>
+  <%= pagination_nav(@page, @total_count, Catpm::ErrorsController::PER_PAGE, extra_params: page_extra) %>
+<% else %>
+  <div class="empty-state">
+    <% if @tab == "active" %>
+      <div class="empty-title">No active errors</div>
+      <div class="empty-hint">Your application is running smoothly. Errors will appear here when they occur.</div>
+    <% else %>
+      <div class="empty-title">No resolved errors</div>
+      <div class="empty-hint">When you resolve active errors, they'll move here for reference.</div>
+    <% end %>
+  </div>
+<% end %>

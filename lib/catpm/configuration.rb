@@ -32,7 +32,7 @@ module Catpm
       @instrument_http = true
       @instrument_jobs = false
       @instrument_segments = true
-      @instrument_net_http = false
+      @instrument_net_http = true
       @max_segments_per_request = 50
       @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments
       @max_sql_length = 200

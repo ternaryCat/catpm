@@ -1,5 +1,6 @@
 <h2><%= title %> (<%= samples.size %>)</h2>
 <% if samples.any? %>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
@@ -11,22 +12,25 @@
     <tbody>
       <% samples.each do |s| %>
         <% ctx = s.parsed_context; summary = ctx["segment_summary"] || ctx[:segment_summary] || {} %>
-        <tr class="clickable" onclick="window.location='<%= catpm.sample_path(s) %>'">
-          <td class="mono"><%= "%.1f" % s.duration %>ms</td>
+        <tr class="linked">
+          <td><a href="<%= catpm.sample_path(s) %>" class="row-link mono"><%= format_duration(s.duration) %></a></td>
           <td>
             <% sc = (summary["sql_count"] || summary[:sql_count] || 0).to_i %>
             <% vc = (summary["view_count"] || summary[:view_count] || 0).to_i %>
             <% if sc > 0 || vc > 0 %>
-              <span class="mono" style="color:#8b949e"><%= sc %> sql, <%= vc %> views</span>
+              <span class="mono text-muted"><%= sc %> sql, <%= vc %> views</span>
             <% else %>
-              <span style="color:#484f58">—</span>
+              <span class="text-muted">—</span>
             <% end %>
           </td>
-          <td class="mono"><%= s.recorded_at.strftime("%H:%M:%S") %></td>
+          <td><%= time_with_tooltip(s.recorded_at) %></td>
         </tr>
       <% end %>
     </tbody>
   </table>
+  </div>
 <% else %>
-  <div class="empty"><%= empty_msg %></div>
+  <div class="empty-state">
+    <div class="empty-hint"><%= empty_msg %></div>
+  </div>
 <% end %>

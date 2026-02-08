@@ -234,12 +234,27 @@ module Catpm
     end
 
     def build_error_context(event)
-      {
+      ctx = {
         occurred_at: event.started_at.iso8601,
         kind: event.kind,
         operation: event.context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
-        backtrace: (event.backtrace || []).first(10)
+        backtrace: (event.backtrace || []).first(10),
+        duration: event.duration,
+        status: event.status
       }
+
+      ctx[:target] = event.target if event.target.present?
+
+      if event.context[:segments]
+        ctx[:segments] = event.context[:segments]
+        ctx[:segments_capped] = event.context[:segments_capped]
+      end
+
+      if event.context[:segment_summary]
+        ctx[:segment_summary] = event.context[:segment_summary]
+      end
+
+      ctx
     end
 
     def build_bucket_map(aggregated_buckets)

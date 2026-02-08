@@ -1,0 +1,128 @@
+<%# Locals: segments, total_duration, segments_capped, table_id %>
+
+<% if segments.any? %>
+  <% total_dur = total_duration.to_f %>
+  <% total_dur = 1.0 if total_dur == 0 %>
+
+  <%
+    # Build tree: compute children lists and depth per segment
+    children = Hash.new { |h, k| h[k] = [] }
+    roots = []
+    segments.each_with_index do |seg, i|
+      pi = seg["parent_index"] || seg[:parent_index]
+      if pi.nil?
+        roots << i
+      else
+        children[pi.to_i] << i
+      end
+    end
+
+    depth_map = {}
+    ordered = []
+    build_order = ->(indices, depth) {
+      indices.each do |i|
+        depth_map[i] = depth
+        ordered << i
+        build_order.call(children.fetch(i, []), depth + 1)
+      end
+    }
+    build_order.call(roots, 0)
+
+    # Include any segments not reachable from roots (orphans from overflow)
+    segments.each_index { |i| unless depth_map.key?(i); depth_map[i] = 0; ordered << i; end }
+
+    # For tree lines: determine if a segment is the last child of its parent
+    last_child = {}
+    ([nil] + segments.each_index.to_a).each do |pi|
+      kids = pi.nil? ? roots : children.fetch(pi, [])
+      last_child[kids.last] = true if kids.any?
+    end
+
+    # Build tree prefix string for indentation
+    tree_prefix = ->(depth, index, current_pos) {
+      next "" if depth == 0
+      parts = []
+      (1...depth).each do |d|
+        has_more = false
+        ((current_pos + 1)...ordered.size).each do |j|
+          jd = depth_map[ordered[j]]
+          break if jd < d
+          if jd == d
+            has_more = true
+            break
+          end
+        end
+        parts << (has_more ? "│  " : "   ")
+      end
+      parts << (last_child[index] ? "└─ " : "├─ ")
+      parts.join
+    }
+  %>
+
+  <%
+    # Determine which segments are parents (have children)
+    has_children = Set.new
+    children.each { |pi, _kids| has_children << pi }
+  %>
+
+  <div style="background:var(--bg-1); border:1px solid var(--border); border-radius:8px; overflow:hidden">
+    <table style="margin:0" id="<%= table_id %>">
+      <thead>
+        <tr>
+          <th style="width:55px">Type</th>
+          <th style="width:70px">Duration</th>
+          <th>Detail</th>
+          <th style="width:35%">Timeline</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% ordered.each_with_index do |seg_idx, pos| %>
+          <% seg = segments[seg_idx] %>
+          <% type = (seg["type"] || seg[:type]).to_s %>
+          <% dur = (seg["duration"] || seg[:duration] || 0).to_f %>
+          <% offset = (seg["offset"] || seg[:offset] || 0).to_f %>
+          <% detail = (seg["detail"] || seg[:detail]).to_s %>
+          <% source = seg["source"] || seg[:source] %>
+          <% bar_color = segment_colors[type] || "#484f58" %>
+          <% left_pct = (offset / total_dur * 100).clamp(0, 99) %>
+          <% width_pct = (dur / total_dur * 100).clamp(0.5, 100 - left_pct) %>
+          <% depth = depth_map[seg_idx] %>
+          <% prefix = tree_prefix.call(depth, seg_idx, pos) %>
+          <% is_parent = has_children.include?(seg_idx) %>
+          <% pi = seg["parent_index"] || seg[:parent_index] %>
+
+          <tr data-seg="<%= seg_idx %>" data-depth="<%= depth %>"<%= " data-parent=\"#{pi}\"" if pi %><%= " data-has-children" if is_parent %>>
+            <td><%= type_badge(type) %></td>
+            <td class="mono" style="text-align:right"><%= "%.2f" % dur %>ms</td>
+            <td>
+              <div style="padding-left:<%= depth * 20 %>px">
+                <% if is_parent %>
+                  <span class="seg-toggle" data-seg="<%= seg_idx %>" onclick="toggleSegment(this)" title="Collapse/Expand">&#x25BE;</span>
+                <% end %>
+                <% if depth > 0 %><span class="tree-indent"><%= prefix %></span><% end %>
+                <% if type == "sql" %>
+                  <span class="sql-text<%= detail.length > 60 ? ' sql-expandable' : '' %>" <%= detail.length > 60 ? 'onclick="this.classList.toggle(\'expanded\')" title="Click to expand"' : '' %>><%= detail %></span>
+                <% else %>
+                  <span class="mono"><%= detail %></span>
+                <% end %>
+                <% if source %>
+                  <div class="source"><%= source %></div>
+                <% end %>
+              </div>
+            </td>
+            <td>
+              <div class="bar-container">
+                <div class="bar-fill" style="margin-left:<%= left_pct %>%; width:<%= width_pct %>%; background:<%= bar_color %>"></div>
+              </div>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+<% else %>
+  <div class="empty-state">
+    <div class="empty-title">No segments captured</div>
+    <div class="empty-hint">Segments appear when SQL queries, view renders, or HTTP calls are instrumented.</div>
+  </div>
+<% end %>

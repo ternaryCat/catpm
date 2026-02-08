@@ -181,4 +181,51 @@ class FlusherTest < ActiveSupport::TestCase
     metadata = bucket.parsed_metadata_sum
     assert_in_delta 30.0, metadata["db_runtime"], 0.01
   end
+
+  test "build_error_context includes segments, duration, status, and target" do
+    segments = [{ type: "sql", duration: 5.0, offset: 0, detail: "SELECT 1" }]
+    summary = { sql_count: 1, sql_duration: 5.0 }
+
+    @buffer.push(Catpm::Event.new(
+      kind: :http, target: "UsersController#show", operation: "GET",
+      duration: 42.5, started_at: Time.current, status: 500,
+      error_class: "RuntimeError", error_message: "boom",
+      backtrace: ["app/controllers/users_controller.rb:10:in `show'"],
+      context: {
+        method: "GET", path: "/users/1",
+        segments: segments,
+        segment_summary: summary,
+        segments_capped: false
+      }
+    ))
+
+    @flusher.flush_cycle
+
+    error = Catpm::ErrorRecord.first
+    ctx = error.parsed_contexts.first
+
+    assert_in_delta 42.5, ctx["duration"], 0.01
+    assert_equal 500, ctx["status"]
+    assert_equal "UsersController#show", ctx["target"]
+    assert_equal 1, ctx["segments"].size
+    assert_equal "sql", ctx["segments"].first["type"]
+    assert_equal({ "sql_count" => 1, "sql_duration" => 5.0 }, ctx["segment_summary"])
+    assert_equal false, ctx["segments_capped"]
+  end
+
+  test "build_error_context omits segments when not present" do
+    @buffer.push(Catpm::Event.new(
+      kind: :http, target: "A#error", operation: "GET",
+      duration: 50.0, started_at: Time.current,
+      error_class: "RuntimeError", error_message: "boom",
+      backtrace: ["app/foo.rb:1"],
+      context: { path: "/error" }
+    ))
+
+    @flusher.flush_cycle
+
+    ctx = Catpm::ErrorRecord.first.parsed_contexts.first
+    assert_nil ctx["segments"]
+    assert_nil ctx["segment_summary"]
+  end
 end

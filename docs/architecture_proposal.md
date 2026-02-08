@@ -1500,15 +1500,23 @@ These are already Rails 8 defaults, but the generator verifies and warns if they
 
 ## 8. Dashboard
 
-The dashboard is the primary user-facing value of catpm. It is implemented as server-rendered HTML using Rails views with Turbo Frame lazy loading for charts.
+The dashboard is the primary user-facing value of catpm. It is implemented as server-rendered HTML using Rails views with zero JavaScript dependencies.
 
 ### 8.1. Technology
 
 *   **Rendering:** ERB templates, standard Rails views (no JS framework).
-*   **Charts:** Inline SVG generated server-side, or a lightweight JS charting library (Chartkick with Chart.js — adds ~40 KB gzipped).
-*   **Interactivity:** Turbo Frames for tab switching and time-range updates without full page reloads.
-*   **Auto-refresh:** Turbo Stream polling every 30 seconds on the overview page (configurable, can be disabled).
-*   **Styling:** Self-contained CSS within the engine (no Tailwind/Bootstrap dependency on the host app).
+*   **Design System:** Monochrome-first with CSS custom properties (`--bg-0..2`, `--text-0..2`, `--accent`, `--red`, `--green`). Single neutral badge style. Color used only for functional signaling (sparkline lines, status dots, HTTP status codes), never for decoration. Muted segment palette for waterfall/breakdown charts.
+*   **Charts:** Inline SVG generated server-side via `sparkline_svg` helper (~200 bytes per chart, 48px tall). No JS charting libraries.
+*   **Time Range:** Dashboard supports 1h / 6h / 24h time ranges via URL param. Sparkline data is bucketed proportionally (1-min, 6-min, or 24-min slots, always 60 data points). RPM and error rate adjust to selected range.
+*   **Interactivity:** HTML5 `<details>/<summary>` for collapsible sections (zero JS). Minimal vanilla JS for: clipboard copy, waterfall toggle, client-side table sorting with visual arrow indicators, kind filtering, and text search. All JS in a single `<script>` block in the layout.
+*   **Navigation:** Real `<a>` links on all clickable table rows (CSS `::after` overlay pattern) — supports Cmd+click, URL preview, accessibility. Underline-style nav tabs. Error count in nav (subtle, not screaming).
+*   **Flash Messages:** Layout renders `flash[:notice]` and `flash[:alert]` with subtle colored banners. Provides feedback on resolve/reopen/delete actions.
+*   **Progressive Disclosure:** System diagnostics collapsed by default. Raw context collapsed. Error waterfalls hidden behind toggle. Fingerprint in collapsible. Information shown on demand, not dumped.
+*   **Styling:** Self-contained CSS within the engine layout (no Tailwind/Bootstrap). Typography: 14px body, 13px monospace. `max-width: 1200px` for readability on wide screens.
+*   **Time Display:** Relative time with tooltip for full date (`time_with_tooltip` helper). Shows "3m ago", "2h ago", "yesterday" with hover for exact timestamp.
+*   **Section Descriptions:** Key metrics and sections include brief explanations (`section_description` helper) to assist junior developers and newcomers (e.g., "p95 means 95% of requests completed faster than this value").
+*   **Status Indicators:** Small colored dots (`status_dot` helper) for active/resolved state instead of colored text. HTTP status codes use semantic badge variants (`badge-ok`, `badge-warn`, `badge-err`).
+*   **Empty States:** Descriptive empty states with guidance on what to do next, rather than bare "No data" messages.
 
 ### 8.2. Dashboard Navigation & Screen Flow
 
@@ -1582,11 +1590,11 @@ end note
 
 | Screen | URL | Content |
 | --- | --- | --- |
-| **Overview** | `/catpm` | Top-level health across all kinds: throughput, avg/p95 duration, error rate. Kind tabs (HTTP / Jobs / Custom / All). Sparklines for the last hour. Top 5 slowest operations. |
-| **Operations Index** | `/catpm/operations?kind=http` | Table of all tracked operations, filterable by kind. Sortable by: count, avg duration, p95, failure rate. Time range selector (1h / 6h / 24h / 7d). |
-| **Operation Detail** | `/catpm/operations/:id` | Time-series charts (duration, throughput, failure rate). Kind-specific metadata panel (HTTP: status codes, view/db runtime; Job: queue wait, retries; Custom: user metadata). Recent slow/error samples with context drill-down. |
-| **Errors Index** | `/catpm/errors` | Grouped error list (by fingerprint), filterable by kind. Columns: kind badge, error class, message, occurrences, last seen, resolved status. |
-| **Error Detail** | `/catpm/errors/:id` | Full backtrace, occurrence timeline, and kind-aware stored contexts (last 5). Button to mark as resolved. |
+| **Overview** | `/catpm` | Time range selector (1h/6h/24h). 3 hero cards with 48px sparklines. Alert-style error cards (neutral, not screaming). Sortable/filterable endpoints table with kind filter pills. Simplified samples table. System diagnostics collapsible with descriptions. "Showing N of M" pagination indicator. "Updated HH:MM:SS" timestamp. |
+| **Endpoint Detail** | `/catpm/endpoint?kind=&target=&operation=` | Neutral-colored stats cards (no green/yellow/red values). Percentile distribution with explanatory description. Time breakdown bar with muted segment colors. Sample tables with relative time. Breadcrumbs. |
+| **Sample Detail** | `/catpm/samples/:id` | Request info cards with segment summary and relative time. Request context with semantic status badge (ok/warn/err). Time breakdown bar. Segments waterfall. Raw context collapsible. Breadcrumbs. |
+| **Errors Index** | `/catpm/errors` | Underline-style tabs. Kind filter pills, text search, server-side sortable columns with arrow indicators. Neutral text (no red error class names). Bold on high count (≥10). Relative time with tooltip. Flash messages for action feedback. |
+| **Error Detail** | `/catpm/errors/:id` | Neutral hero header with status dot (small colored dot, not colored text). Backtrace with app/framework distinction. "Last N Captured Occurrences" label. Fingerprint in collapsible section. Flash messages for resolve/delete feedback. |
 
 ### 8.4. Time-Range Queries
 

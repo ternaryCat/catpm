@@ -7,9 +7,17 @@ module Catpm
       @target = params[:target]
       @operation = params[:operation].presence || ""
 
+      # Time range filter
+      @range = %w[1h 6h 24h all].include?(params[:range]) ? params[:range] : "all"
+
       @buckets = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
         .order(bucket_start: :desc)
+
+      if @range != "all"
+        period = { "1h" => 1.hour, "6h" => 6.hours, "24h" => 24.hours }[@range]
+        @buckets = @buckets.where("bucket_start >= ?", period.ago)
+      end
 
       @aggregate = @buckets.pick(
         "SUM(count)",
@@ -40,6 +48,10 @@ module Catpm
       endpoint_samples = Catpm::Sample
         .joins(:bucket)
         .where(catpm_buckets: { kind: @kind, target: @target, operation: @operation })
+
+      if @range != "all"
+        endpoint_samples = endpoint_samples.where("catpm_samples.recorded_at >= ?", period.ago)
+      end
 
       @slow_samples = endpoint_samples.where(sample_type: "slow").order(duration: :desc).limit(10)
       @samples = endpoint_samples.where(sample_type: "random").order(recorded_at: :desc).limit(10)

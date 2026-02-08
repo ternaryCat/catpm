@@ -1,62 +1,73 @@
 <% content_for :title, @target %>
 <% content_for :subtitle do %>
-  <span class="badge badge-<%= @kind %>"><%= @kind %></span>
-  <strong><%= @target %></strong> <%= @operation.presence %>
+  <%= type_badge(@kind) %>
+  <%= @target %> <%= @operation.presence %>
   &middot; <%= @count %> requests
+  &middot; <%= @range == "all" ? "All time" : range_label(@range) %>
 <% end %>
 
-<%# ─── Stats Cards ─── %>
+<div class="breadcrumbs">
+  <a href="<%= catpm.status_index_path %>">Overview</a>
+  <span class="sep">/</span>
+  <span><%= @target %></span>
+</div>
+
+<% ep_params = { kind: @kind, target: @target, operation: @operation } %>
+<div class="time-range">
+  <% %w[1h 6h 24h all].each do |r| %>
+    <a href="<%= catpm.endpoint_path(ep_params.merge(range: r)) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
+  <% end %>
+</div>
+
 <div class="grid">
   <div class="card">
     <div class="label">Requests</div>
-    <div class="value green"><%= @count %></div>
+    <div class="value"><%= @count %></div>
   </div>
   <div class="card">
     <div class="label">Avg Duration</div>
-    <div class="value"><%= "%.1f" % @avg_duration %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= format_duration(@avg_duration) %></div>
   </div>
   <div class="card">
     <div class="label">p95</div>
-    <div class="value yellow"><%= @tdigest ? ("%.1f" % @tdigest.percentile(0.95)) : "—" %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= @tdigest ? format_duration(@tdigest.percentile(0.95)) : "—" %></div>
   </div>
   <div class="card">
     <div class="label">Max</div>
-    <div class="value red"><%= "%.1f" % @duration_max %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= format_duration(@duration_max) %></div>
   </div>
   <div class="card">
     <div class="label">Min</div>
-    <div class="value"><%= "%.1f" % @duration_min %><span style="font-size:14px;color:#8b949e">ms</span></div>
+    <div class="value"><%= format_duration(@duration_min) %></div>
   </div>
   <div class="card">
     <div class="label">Failures</div>
-    <div class="value <%= @failure_count > 0 ? 'red' : '' %>"><%= @failure_count %></div>
+    <div class="value"><%= @failure_count %></div>
     <div class="detail"><%= "%.1f" % (@failure_rate * 100) %>%</div>
   </div>
 </div>
 
-<%# ─── Percentile Distribution ─── %>
 <% if @tdigest && @tdigest.count > 0 %>
   <h2>Percentile Distribution</h2>
+  <%= section_description("p95 means 95% of requests completed faster than this value. Higher percentiles reveal tail latency.") %>
   <div class="grid">
     <% [0.5, 0.75, 0.9, 0.95, 0.99].each do |p| %>
       <div class="card">
         <div class="label">p<%= (p * 100).to_i %></div>
-        <div class="value"><%= "%.1f" % @tdigest.percentile(p) %><span style="font-size:14px;color:#8b949e">ms</span></div>
+        <div class="value"><%= format_duration(@tdigest.percentile(p)) %></div>
       </div>
     <% end %>
   </div>
 <% end %>
 
-<%# ─── Time Breakdown ─── %>
 <%
-  segment_colors = { "sql" => "#1f6feb", "view" => "#8957e5", "cache" => "#3fb950", "http" => "#da3633", "mailer" => "#d2a8ff", "storage" => "#56d364", "custom" => "#f0883e" }
-  segment_labels = { "sql" => "SQL queries", "view" => "View renders", "cache" => "Cache ops", "http" => "HTTP calls", "mailer" => "Mailer", "storage" => "Storage", "custom" => "Custom traces" }
   type_data = segment_colors.map { |type, color|
     count = (@metadata["#{type}_count"] || @metadata[:"#{type}_count"] || 0).to_f
     dur = (@metadata["#{type}_duration"] || @metadata[:"#{type}_duration"] || 0).to_f
     avg_dur = @count > 0 ? dur / @count : 0
     avg_count = @count > 0 ? count / @count : 0
-    { type: type, label: segment_labels[type], color: color, count: count, dur: dur, avg_dur: avg_dur, avg_count: avg_count }
+    text_color = segment_text_colors[type] || "#4b5563"
+    { type: type, label: segment_labels[type] || type.capitalize, bg: color, text: text_color, count: count, dur: dur, avg_dur: avg_dur, avg_count: avg_count }
   }.select { |d| d[:count] > 0 }
 %>
 
@@ -67,18 +78,23 @@
     avg_total = @avg_duration
     typed_avg = type_data.sum { |d| d[:avg_dur] }
     avg_other = [avg_total - typed_avg, 0].max
-    bar_data = type_data.map { |d| [d[:label], d[:avg_dur], d[:color]] }
-    bar_data << ["Other", avg_other, "#484f58"] if avg_other > 0
+    bar_data = type_data.map { |d| [d[:label], d[:avg_dur], d[:bg], d[:text]] }
+    bar_data << ["Other", avg_other, "#dde2e8", "#4b5563"] if avg_other > 0
   %>
 
-  <div style="margin-bottom: 16px">
-    <div style="display:flex; height:32px; border-radius:6px; overflow:hidden;">
-      <% bar_data.each do |label, dur, color| %>
+  <div style="margin-bottom:16px">
+    <div style="display:flex; height:32px; border-radius:4px; overflow:hidden; border:1px solid var(--border)">
+      <% bar_data.each do |label, dur, bg, text| %>
         <% if dur > 0 && avg_total > 0 %>
-          <div style="flex:<%= dur %>; background:<%= color %>; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
-            <% if dur / avg_total > 0.08 %><%= label %> <%= "%.0f" % (dur / avg_total * 100) %>%<% end %>
+          <div title="<%= label %> — <%= format_duration(dur) %> (<%= "%.0f" % (dur/avg_total*100) %>%)" style="flex:<%= dur %>; background:<%= bg %>; display:flex; align-items:center; justify-content:center; color:<%= text %>; font-size:11px; font-weight:500; overflow:hidden; white-space:nowrap; padding:0 4px;">
+            <% if dur / avg_total > 0.08 %><%= label %><% end %>
           </div>
         <% end %>
+      <% end %>
+    </div>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:12px; color:var(--text-1)">
+      <% bar_data.each do |label, dur, bg, text| %>
+        <span><span style="display:inline-block;width:10px;height:10px;background:<%= bg %>;border-radius:2px;margin-right:4px;border:1px solid <%= text %>22"></span><%= label %> <%= format_duration(dur) %> (<%= "%.0f" % (avg_total > 0 ? dur/avg_total*100 : 0) %>%)</span>
       <% end %>
     </div>
   </div>
@@ -88,17 +104,19 @@
       <div class="card">
         <div class="label">Avg <%= d[:label] %></div>
         <div class="value"><%= "%.0f" % d[:avg_count] %></div>
-        <div class="detail"><%= "%.1f" % d[:avg_dur] %>ms avg</div>
+        <div class="detail"><%= format_duration(d[:avg_dur]) %> avg</div>
       </div>
     <% end %>
-    <div class="card">
-      <div class="label">Avg Other</div>
-      <div class="value"><%= "%.1f" % avg_other %><span style="font-size:14px;color:#8b949e">ms</span></div>
-      <div class="detail">app code, middleware</div>
-    </div>
+    <% if avg_other > 0 %>
+      <div class="card">
+        <div class="label">Avg Other</div>
+        <div class="value"><%= format_duration(avg_other) %></div>
+        <div class="detail">App code, middleware, etc.</div>
+      </div>
+    <% end %>
   </div>
 <% end %>
 
-<%= render "catpm/endpoints/sample_table", title: "Slowest Requests", samples: @slow_samples, empty_msg: "No slow requests captured." %>
-<%= render "catpm/endpoints/sample_table", title: "Sample Requests", samples: @samples, empty_msg: "No samples yet. First requests will be captured automatically." %>
-<%= render "catpm/endpoints/sample_table", title: "Error Requests", samples: @error_samples, empty_msg: "No errors." %>
+<%= render "catpm/endpoints/sample_table", title: "Error Requests", samples: @error_samples, empty_msg: "No errors for this endpoint." %>
+<%= render "catpm/endpoints/sample_table", title: "Slowest Requests", samples: @slow_samples, empty_msg: "No slow requests captured yet." %>
+<%= render "catpm/endpoints/sample_table", title: "Sample Requests", samples: @samples, empty_msg: "No samples captured yet." %>

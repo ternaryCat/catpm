@@ -1,0 +1,74 @@
+<% content_for :title, "System" %>
+<% content_for :subtitle, "Diagnostics & Configuration" %>
+
+<div class="breadcrumbs">
+  <a href="<%= catpm.status_index_path %>">Overview</a>
+  <span class="sep">/</span>
+  <span>System</span>
+</div>
+
+<%# ─── Pipeline ─── %>
+<h2>Data Pipeline</h2>
+<%= section_description("Every request flows through this pipeline. Events are buffered in memory and flushed to the database periodically.") %>
+
+<div class="pipeline">
+  <div class="pipeline-node">
+    <div class="node-label">Capture</div>
+    <div class="node-value" style="font-size:14px">Middleware</div>
+    <div class="node-detail">Rack middleware intercepts every request and records timing, segments, and errors</div>
+  </div>
+  <div class="pipeline-arrow">
+    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="pipeline-node">
+    <div class="node-label">Buffer</div>
+    <div class="node-value"><%= @buffer_size %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">events</span></div>
+    <div class="node-detail">Events queue in a thread-safe memory buffer (<%= number_to_human_size(@buffer_bytes) %> used, max <%= number_to_human_size(@config.max_buffer_memory) %>)<br><% if @stats[:dropped_events] > 0 %><span style="color:var(--red)"><%= @stats[:dropped_events] %> dropped when buffer was full</span><% else %><span class="pulse" style="background:var(--green)"></span> healthy, no drops<% end %></div>
+  </div>
+  <div class="pipeline-arrow">
+    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="pipeline-node">
+    <div class="node-label">Flush</div>
+    <div class="node-value"><%= @stats[:flushes] %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">times</span></div>
+    <div class="node-detail">A background thread drains the buffer every ~<%= @config.flush_interval %>s, aggregating into time-bucketed stats<br><% if @stats[:circuit_opens] > 0 %><span style="color:var(--yellow)"><%= @stats[:circuit_opens] %> circuit opens (DB errors)</span><% else %><span class="pulse" style="background:var(--green)"></span> circuit healthy<% end %></div>
+  </div>
+  <div class="pipeline-arrow">
+    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+  <div class="pipeline-node">
+    <div class="node-label">Database</div>
+    <div class="node-value"><%= @bucket_count %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">buckets</span></div>
+    <div class="node-detail"><%= @sample_count %> samples and <%= @error_count %> error fingerprints stored<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{(@config.retention_period / 1.day).to_i}d" : "No data yet" %></div>
+  </div>
+</div>
+
+<%# ─── Configuration ─── %>
+<h2>Configuration</h2>
+<%= section_description("Current catpm settings. Configure via initializer.") %>
+<div class="config-table">
+<div class="table-scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Enabled</td><td class="mono"><%= @config.enabled %></td></tr>
+    <tr><td>HTTP Instrumentation</td><td class="mono"><%= @config.instrument_http %></td></tr>
+    <tr><td>Job Instrumentation</td><td class="mono"><%= @config.instrument_jobs %></td></tr>
+    <tr><td>Segment Instrumentation</td><td class="mono"><%= @config.instrument_segments %></td></tr>
+    <tr><td>Net::HTTP Instrumentation</td><td class="mono"><%= @config.instrument_net_http %></td></tr>
+    <tr><td>Slow Threshold</td><td class="mono"><%= @config.slow_threshold %>ms</td></tr>
+    <tr><td>Max Segments / Request</td><td class="mono"><%= @config.max_segments_per_request %></td></tr>
+    <tr><td>Max SQL Length</td><td class="mono"><%= @config.max_sql_length %> chars</td></tr>
+    <tr><td>Flush Interval</td><td class="mono"><%= @config.flush_interval %>s (&plusmn;<%= @config.flush_jitter %>s)</td></tr>
+    <tr><td>Max Buffer Memory</td><td class="mono"><%= number_to_human_size(@config.max_buffer_memory) %></td></tr>
+    <tr><td>Max Error Contexts</td><td class="mono"><%= @config.max_error_contexts %></td></tr>
+    <tr><td>Retention Period</td><td class="mono"><%= (@config.retention_period / 1.day).to_i %> days</td></tr>
+  </tbody>
+</table>
+</div>
+</div>

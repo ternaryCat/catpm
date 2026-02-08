@@ -72,7 +72,8 @@ module Catpm
                 on_duplicate: Arel.sql(<<~SQL)
                   occurrences_count = catpm_errors.occurrences_count + excluded.occurrences_count,
                   last_occurred_at = GREATEST(catpm_errors.last_occurred_at, excluded.last_occurred_at),
-                  contexts = excluded.contexts
+                  contexts = excluded.contexts,
+                  resolved_at = NULL
                 SQL
               )
             end

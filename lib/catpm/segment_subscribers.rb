@@ -68,6 +68,12 @@ module Catpm
           record_sql_segment(event)
         end
 
+        @instantiation_subscriber = ActiveSupport::Notifications.subscribe(
+          "instantiation.active_record"
+        ) do |event|
+          record_instantiation_segment(event)
+        end
+
         @render_template_subscriber = ActiveSupport::Notifications.subscribe(
           "render_template.action_view", ViewSpanSubscriber.new
         )
@@ -114,7 +120,8 @@ module Catpm
       def unsubscribe!
         [
           @controller_span_subscriber,
-          @sql_subscriber, @render_template_subscriber, @render_partial_subscriber,
+          @sql_subscriber, @instantiation_subscriber,
+          @render_template_subscriber, @render_partial_subscriber,
           @cache_read_subscriber, @cache_write_subscriber,
           @mailer_subscriber, @storage_upload_subscriber, @storage_download_subscriber
         ].each do |sub|
@@ -122,6 +129,7 @@ module Catpm
         end
         @controller_span_subscriber = nil
         @sql_subscriber = nil
+        @instantiation_subscriber = nil
         @render_template_subscriber = nil
         @render_partial_subscriber = nil
         @cache_read_subscriber = nil
@@ -132,6 +140,25 @@ module Catpm
       end
 
       private
+
+      def record_instantiation_segment(event)
+        req_segments = Thread.current[:catpm_request_segments]
+        return unless req_segments
+
+        duration = event.duration
+        return if duration < 0.1 # skip trivial instantiations
+
+        payload = event.payload
+        record_count = payload[:record_count] || 0
+        class_name = payload[:class_name] || "ActiveRecord"
+        detail = "#{class_name} x#{record_count}"
+
+        # Fold into sql summary for cleaner breakdown
+        req_segments.add(
+          type: :sql, duration: duration, detail: detail,
+          started_at: event.time
+        )
+      end
 
       def record_sql_segment(event)
         req_segments = Thread.current[:catpm_request_segments]

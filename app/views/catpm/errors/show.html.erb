@@ -1,65 +1,119 @@
 <% content_for :title, @error.error_class %>
 <% content_for :subtitle do %>
-  <span class="badge badge-<%= @error.kind %>"><%= @error.kind %></span>
-  <strong style="color:#f85149"><%= @error.error_class %></strong>
+  <%= type_badge(@error.kind) %>
+  <%= @error.error_class %>
   &middot; <%= @error.occurrences_count %> occurrences
-  &middot; <%= @error.resolved? ? "resolved" : "active" %>
 <% end %>
 
+<div class="breadcrumbs">
+  <a href="<%= catpm.status_index_path %>">Overview</a>
+  <span class="sep">/</span>
+  <a href="<%= catpm.errors_path(tab: @error.resolved? ? "resolved" : "active") %>">Errors</a>
+  <span class="sep">/</span>
+  <span><%= @error.error_class %></span>
+</div>
+
+<%# ─── Hero ─── %>
+<div class="error-hero">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
+    <div style="flex:1; min-width:0">
+      <div class="error-hero-class"><%= @error.error_class %></div>
+      <div class="error-hero-message"><%= @error.message %></div>
+      <div class="error-hero-meta">
+        <%= type_badge(@error.kind) %>
+        <%= status_dot(@error.resolved?) %>
+        <span class="occurrence-count"><%= @error.occurrences_count %> occurrences</span>
+      </div>
+    </div>
+    <div style="display:flex; gap:6px; flex-shrink:0">
+      <% if @error.resolved? %>
+        <%= button_to "Reopen", catpm.unresolve_error_path(@error), method: :patch, class: "btn" %>
+      <% else %>
+        <%= button_to "Resolve", catpm.resolve_error_path(@error), method: :patch, class: "btn btn-primary" %>
+      <% end %>
+      <%= button_to "Delete", catpm.error_path(@error), method: :delete, class: "btn btn-danger", data: { confirm: "Delete this error and all its occurrences?" } %>
+    </div>
+  </div>
+</div>
+
+<%# ─── Timeline ─── %>
 <div class="grid">
   <div class="card">
-    <div class="label">Occurrences</div>
-    <div class="value red"><%= @error.occurrences_count %></div>
-  </div>
-  <div class="card">
     <div class="label">First Seen</div>
-    <div class="value" style="font-size:16px"><%= @error.first_occurred_at.strftime("%Y-%m-%d %H:%M") %></div>
+    <div class="value" style="font-size:16px"><%= time_with_tooltip(@error.first_occurred_at) %></div>
   </div>
   <div class="card">
     <div class="label">Last Seen</div>
-    <div class="value" style="font-size:16px"><%= @error.last_occurred_at.strftime("%Y-%m-%d %H:%M") %></div>
-  </div>
-  <div class="card">
-    <div class="label">Status</div>
-    <div class="value" style="font-size:16px; color:<%= @error.resolved? ? '#3fb950' : '#f85149' %>"><%= @error.resolved? ? "Resolved" : "Active" %></div>
+    <div class="value" style="font-size:16px"><%= time_with_tooltip(@error.last_occurred_at) %></div>
   </div>
 </div>
 
-<h2>Message</h2>
-<div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:12px">
-  <div style="color:#f85149; font-size:14px"><%= @error.message %></div>
+<%# ─── Backtrace ─── %>
+<% first_bt = @contexts.first && (@contexts.first["backtrace"] || @contexts.first[:backtrace] || []) %>
+<% if first_bt.any? %>
+  <h2>Backtrace</h2>
+  <%= section_description("All occurrences share the same fingerprint and backtrace.") %>
+  <div style="border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:12px; position:relative">
+    <button class="copy-btn" style="position:absolute; top:8px; right:8px" onclick="copyText(this)">Copy</button>
+    <pre class="mono" style="font-size:12px; white-space:pre-wrap; margin:0; line-height:1.8"><% first_bt.first(20).each do |line| %><span class="<%= line.match?(%r{/(gems|ruby|vendor|bundle)/}) ? 'backtrace-lib' : 'backtrace-app' %>"><%= line %></span>
+<% end %></pre>
+  </div>
+<% end %>
+
+<%# ─── Fingerprint ─── %>
+<div style="margin-bottom:20px; font-size:12px; color:var(--text-2)">
+  <span style="font-weight:500; color:var(--text-1)">Fingerprint:</span>
+  <span class="mono" style="word-break:break-all"><%= @error.fingerprint %></span>
 </div>
 
-<h2>Fingerprint</h2>
-<div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:12px">
-  <div class="mono" style="color:#8b949e; word-break:break-all"><%= @error.fingerprint %></div>
-</div>
-
+<%# ─── Occurrences ─── %>
 <% if @contexts.any? %>
-  <h2>Recent Occurrences (<%= @contexts.size %>)</h2>
-  <% @contexts.each_with_index do |ctx, i| %>
-    <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:8px">
-      <div style="display:flex; justify-content:space-between; margin-bottom:8px">
-        <strong style="color:#c9d1d9">#<%= i + 1 %></strong>
-        <span class="mono" style="color:#8b949e"><%= ctx["occurred_at"] || ctx[:occurred_at] %></span>
-      </div>
-
-      <% op = ctx["operation"] || ctx[:operation] || {} %>
-      <% if op.any? %>
-        <div style="margin-bottom:8px">
-          <% op.each do |k, v| %>
-            <span class="kv"><span class="k"><%= k %>:</span> <span class="v"><%= v %></span></span>
-          <% end %>
-        </div>
+  <h2>Last <%= @contexts.size %> Captured Occurrences</h2>
+  <%= section_description("Click a row to expand details.") %>
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Time</th>
+        <th>Duration</th>
+        <th>Status</th>
+        <th>Target</th>
+        <th>Segments</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @contexts.each_with_index do |ctx, i| %>
+        <% segments = ctx["segments"] || ctx[:segments] || [] %>
+        <% has_detail = segments.any? || (ctx["operation"] || ctx[:operation] || {}).any? %>
+        <tr id="occurrence-<%= i + 1 %>" class="<%= 'expandable' if has_detail %>" data-occurrence="<%= i %>" <%= "onclick=\"toggleOccurrence(this)\"" if has_detail %>>
+          <td class="mono text-muted"><% if has_detail %><span class="chevron">&#x25B8;</span> <% end %>#<%= i + 1 %></td>
+          <td><%= time_with_tooltip(ctx["occurred_at"] || ctx[:occurred_at]) %></td>
+          <td class="mono"><%= (ctx["duration"] || ctx[:duration]) ? format_duration((ctx["duration"] || ctx[:duration]).to_f) : "—" %></td>
+          <td><%= status_badge(ctx["status"] || ctx[:status]) %></td>
+          <td class="mono"><%= ctx["target"] || ctx[:target] || "—" %></td>
+          <td class="mono text-muted"><%= segment_count_summary(ctx["segment_summary"] || ctx[:segment_summary]).presence || "—" %></td>
+        </tr>
+        <% if has_detail %>
+          <tr id="detail-<%= i %>" style="display:none">
+            <td colspan="6" style="padding:14px; background:var(--bg-1)">
+              <% op = ctx["operation"] || ctx[:operation] || {} %>
+              <% if op.any? %>
+                <div style="margin-bottom:8px">
+                  <% op.each do |k, v| %>
+                    <span class="kv"><span class="k"><%= k %>:</span> <span class="v"><%= v %></span></span>
+                  <% end %>
+                </div>
+              <% end %>
+              <% if segments.any? %>
+                <h3>Segments (<%= segments.size %><%= ctx["segments_capped"] || ctx[:segments_capped] ? " — capped" : "" %>)</h3>
+                <%= render "catpm/shared/segments_waterfall", segments: segments, total_duration: (ctx["duration"] || ctx[:duration] || 1), segments_capped: ctx["segments_capped"] || ctx[:segments_capped], table_id: "segments-table-#{i}" %>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
       <% end %>
-
-      <% bt = ctx["backtrace"] || ctx[:backtrace] || [] %>
-      <% if bt.any? %>
-        <div style="margin-top:8px">
-          <h3>Backtrace</h3>
-          <pre class="mono" style="color:#8b949e; font-size:11px; white-space:pre-wrap; margin-top:4px"><%= bt.first(10).join("\n") %></pre>
-        </div>
-      <% end %>
-    </div>
-  <% end %>
+    </tbody>
+  </table>
+  </div>
 <% end %>

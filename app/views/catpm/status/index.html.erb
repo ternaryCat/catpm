@@ -1,142 +1,158 @@
 <% content_for :title, "Overview" %>
-<% content_for :subtitle, "Lightweight APM Dashboard" %>
+<% content_for :subtitle, "Application Performance Monitor" %>
 
-<div class="grid">
+<div class="page-nav">
+  <a href="<%= catpm.errors_path %>">Errors<% if @active_error_count > 0 %><span class="nav-count alert"><%= @active_error_count %></span><% end %></a>
+  <a href="<%= catpm.system_index_path %>">System</a>
+</div>
+
+<%# ─── Time Range ─── %>
+<div class="time-range">
+  <% %w[1h 6h 24h].each do |r| %>
+    <a href="<%= catpm.status_index_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% end %>
+  <span style="margin-left:auto; font-size:12px; color:var(--text-2)">
+    Updated <%= Time.current.strftime("%H:%M:%S") %> ·
+    <span id="refresh-status">Refreshing in <span id="refresh-countdown">30</span>s</span>
+    <a href="#" id="refresh-toggle" onclick="toggleAutoRefresh(event)" style="margin-left:4px; color:var(--text-2)">Pause</a>
+  </span>
+</div>
+
+<script>
+  (function() {
+    var seconds = 30, paused = false, timer;
+    var countdownEl = document.getElementById('refresh-countdown');
+    var statusEl = document.getElementById('refresh-status');
+    var toggleEl = document.getElementById('refresh-toggle');
+    function tick() {
+      if (paused) return;
+      seconds--;
+      if (seconds <= 0) { location.reload(); return; }
+      countdownEl.textContent = seconds;
+      timer = setTimeout(tick, 1000);
+    }
+    timer = setTimeout(tick, 1000);
+    window.toggleAutoRefresh = function(e) {
+      e.preventDefault();
+      paused = !paused;
+      if (paused) {
+        clearTimeout(timer);
+        statusEl.textContent = 'Auto-refresh paused';
+        toggleEl.textContent = 'Resume';
+      } else {
+        statusEl.innerHTML = 'Refreshing in <span id="refresh-countdown">' + seconds + '</span>s';
+        countdownEl = document.getElementById('refresh-countdown');
+        toggleEl.textContent = 'Pause';
+        timer = setTimeout(tick, 1000);
+      }
+    };
+  })();
+</script>
+
+<%# ─── Hero Metrics ─── %>
+<div class="grid-hero">
   <div class="card">
-    <div class="label">Endpoints</div>
-    <div class="value"><%= @endpoint_count %></div>
+    <div class="label">Requests / min</div>
+    <div class="value"><%= @requests_per_min %></div>
+    <div class="detail"><%= @recent_count %> total &middot; <%= range_label(@range) %></div>
+    <div class="sparkline"><%= sparkline_svg(@sparkline_requests, width: 200, height: 48, color: "var(--accent)", fill: true, time_labels: @sparkline_times) %></div>
   </div>
   <div class="card">
-    <div class="label">Total Requests</div>
-    <div class="value green"><%= @total_requests %></div>
+    <div class="label">Error Rate</div>
+    <div class="value"><%= @error_rate %>%</div>
+    <div class="detail"><%= @sparkline_errors.sum %> errors &middot; <%= range_label(@range) %></div>
+    <div class="sparkline"><%= sparkline_svg(@sparkline_errors, width: 200, height: 48, color: "var(--red)", fill: true, time_labels: @sparkline_times) %></div>
   </div>
   <div class="card">
-    <div class="label">Errors</div>
-    <div class="value <%= @errors.any? ? 'red' : '' %>"><%= @errors.size %></div>
-  </div>
-  <div class="card">
-    <div class="label">Samples</div>
-    <div class="value yellow"><%= @samples.size %></div>
-  </div>
-  <div class="card">
-    <div class="label">Flushes</div>
-    <div class="value"><%= @stats[:flushes] %></div>
-  </div>
-  <div class="card">
-    <div class="label">Buffer</div>
-    <div class="value"><%= @buffer_size %></div>
-    <div class="detail"><%= number_to_human_size(@buffer_bytes) %></div>
-  </div>
-  <div class="card">
-    <div class="label">Dropped</div>
-    <div class="value <%= @stats[:dropped_events] > 0 ? 'red' : '' %>"><%= @stats[:dropped_events] %></div>
-  </div>
-  <div class="card">
-    <div class="label">Circuit Opens</div>
-    <div class="value <%= @stats[:circuit_opens] > 0 ? 'red' : '' %>"><%= @stats[:circuit_opens] %></div>
+    <div class="label">Avg Response Time</div>
+    <div class="value"><%= format_duration(@recent_avg_duration) %></div>
+    <div class="detail"><%= @total_endpoint_count %> endpoints tracked</div>
+    <div class="sparkline"><%= sparkline_svg(@sparkline_durations, width: 200, height: 48, color: "var(--accent)", fill: true, labels: @sparkline_durations.map { |d| format_duration(d) }, time_labels: @sparkline_times) %></div>
   </div>
 </div>
 
-<h2>Endpoints</h2>
+<%# ─── Endpoints ─── %>
+<h2>Endpoints <% if @total_endpoint_count > @endpoint_count %><span class="text-muted" style="font-weight:400; font-size:13px">(showing <%= @endpoint_count %> of <%= @total_endpoint_count %>)</span><% end %></h2>
+<%= section_description("Endpoints active in the selected time range.") %>
+<% ep_extra = { range: @range }; ep_extra[:kind] = @kind_filter if @kind_filter %>
+<% if @endpoints.any? || @kind_filter.present? %>
+  <div class="filters">
+    <% @available_kinds.each do |k| %>
+      <a href="<%= catpm.status_index_path(range: @range, kind: @kind_filter == k ? nil : k) %>" class="filter-pill<%= ' active' if @kind_filter == k %>"><%= k %></a>
+    <% end %>
+  </div>
+<% end %>
 <% if @endpoints.any? %>
-  <table>
+  <div class="table-scroll">
+  <table id="endpoints-table">
     <thead>
       <tr>
         <th>Kind</th>
-        <th>Target</th>
-        <th>Operation</th>
-        <th>Count</th>
-        <th>Avg</th>
-        <th>Max</th>
-        <th>Fail</th>
-        <th>Last Seen</th>
+        <th><%= sort_header("Target", "target", @sort, @dir, extra_params: ep_extra) %></th>
+        <th><%= sort_header("Count", "total_count", @sort, @dir, extra_params: ep_extra) %></th>
+        <th><%= sort_header("Avg", "avg_duration", @sort, @dir, extra_params: ep_extra) %></th>
+        <th><%= sort_header("Max", "max_duration", @sort, @dir, extra_params: ep_extra) %></th>
+        <th><%= sort_header("Fail", "total_failures", @sort, @dir, extra_params: ep_extra) %></th>
+        <th><%= sort_header("Last Seen", "last_seen", @sort, @dir, extra_params: ep_extra) %></th>
       </tr>
     </thead>
     <tbody>
       <% @endpoints.each do |ep| %>
-        <tr class="clickable" onclick="window.location='<%= catpm.endpoint_path(kind: ep[:kind], target: ep[:target], operation: ep[:operation]) %>'">
-          <td><span class="badge badge-<%= ep[:kind] %>"><%= ep[:kind] %></span></td>
-          <td class="mono"><%= ep[:target] %></td>
-          <td class="mono"><%= ep[:operation].presence || "—" %></td>
+        <tr class="linked">
+          <td><a href="<%= catpm.endpoint_path(kind: ep[:kind], target: ep[:target], operation: ep[:operation]) %>" class="row-link"><%= type_badge(ep[:kind]) %></a></td>
+          <td class="mono"><%= ep[:target] %><%= " #{ep[:operation]}" if ep[:operation].present? %></td>
           <td><%= ep[:total_count] %></td>
-          <td class="mono"><%= "%.1f" % ep[:avg_duration] %>ms</td>
-          <td class="mono"><%= "%.1f" % ep[:max_duration] %>ms</td>
-          <td style="<%= ep[:total_failures] > 0 ? 'color:#f85149' : '' %>"><%= ep[:total_failures] %></td>
-          <td class="mono"><%= ep[:last_seen].strftime("%H:%M") %></td>
+          <td class="mono"><%= format_duration(ep[:avg_duration]) %></td>
+          <td class="mono"><%= format_duration(ep[:max_duration]) %></td>
+          <td><%= ep[:total_failures] %></td>
+          <td><%= time_with_tooltip(ep[:last_seen]) %></td>
         </tr>
       <% end %>
     </tbody>
   </table>
+  </div>
+  <% ep_page_extra = { range: @range, sort: @sort, dir: @dir }; ep_page_extra[:kind] = @kind_filter if @kind_filter %>
+  <%= pagination_nav(@page, @total_endpoint_count, Catpm::StatusController::PER_PAGE, extra_params: ep_page_extra) %>
 <% else %>
-  <div class="empty">No data yet. Hit some endpoints and flush!</div>
+  <div class="empty-state">
+    <% if @kind_filter %>
+      <div class="empty-title">No matching endpoints</div>
+      <div class="empty-hint">No <strong><%= @kind_filter %></strong> endpoints found in this time range.</div>
+    <% else %>
+      <div class="empty-title">No endpoints tracked yet</div>
+      <div class="empty-hint">Make some requests to your application and they'll appear here after the next flush.</div>
+    <% end %>
+  </div>
 <% end %>
 
+<%# ─── Recent Samples ─── %>
 <h2>Recent Samples</h2>
 <% if @samples.any? %>
+  <div class="table-scroll">
   <table>
     <thead>
       <tr>
         <th>Type</th>
-        <th>Kind</th>
         <th>Target</th>
         <th>Duration</th>
-        <th>Segments</th>
         <th>Time</th>
       </tr>
     </thead>
     <tbody>
       <% @samples.each do |s| %>
-        <tr class="clickable" onclick="window.location='<%= catpm.sample_path(s) %>'">
-          <td><span class="badge badge-<%= s.sample_type %>"><%= s.sample_type %></span></td>
-          <td><span class="badge badge-<%= s.kind %>"><%= s.kind %></span></td>
+        <tr class="linked">
+          <td><a href="<%= catpm.sample_path(s) %>" class="row-link"><%= type_badge(s.sample_type) %></a></td>
           <td class="mono"><%= s.bucket&.target || "—" %></td>
-          <td class="mono"><%= "%.1f" % s.duration %>ms</td>
-          <td>
-            <% ctx = s.parsed_context; summary = ctx["segment_summary"] || ctx[:segment_summary] %>
-            <% if summary %>
-              <span class="mono" style="color:#8b949e">
-                <%= (summary["sql_count"] || summary[:sql_count] || 0).to_i %> sql,
-                <%= (summary["view_count"] || summary[:view_count] || 0).to_i %> views
-              </span>
-            <% else %>
-              <span style="color:#484f58">—</span>
-            <% end %>
-          </td>
-          <td class="mono"><%= s.recorded_at.strftime("%H:%M:%S") %></td>
+          <td class="mono"><%= format_duration(s.duration) %></td>
+          <td><%= time_with_tooltip(s.recorded_at) %></td>
         </tr>
       <% end %>
     </tbody>
   </table>
+  </div>
 <% else %>
-  <div class="empty">No samples yet.</div>
-<% end %>
-
-<h2>Errors</h2>
-<% if @errors.any? %>
-  <table>
-    <thead>
-      <tr>
-        <th>Kind</th>
-        <th>Error Class</th>
-        <th>Message</th>
-        <th>Count</th>
-        <th>Last Seen</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% @errors.each do |e| %>
-        <tr class="clickable" onclick="window.location='<%= catpm.error_path(e) %>'">
-          <td><span class="badge badge-<%= e.kind %>"><%= e.kind %></span></td>
-          <td class="mono" style="color:#f85149"><%= e.error_class %></td>
-          <td><%= truncate(e.message, length: 50) %></td>
-          <td><%= e.occurrences_count %></td>
-          <td class="mono"><%= e.last_occurred_at.strftime("%H:%M:%S") %></td>
-          <td><%= e.resolved? ? "resolved" : "active" %></td>
-        </tr>
-      <% end %>
-    </tbody>
-  </table>
-<% else %>
-  <div class="empty">No errors.</div>
+  <div class="empty-state">
+    <div class="empty-title">No samples yet</div>
+    <div class="empty-hint">Samples are captured automatically for slow, random, and error requests.</div>
+  </div>
 <% end %>

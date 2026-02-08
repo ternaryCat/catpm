@@ -1,260 +1,113 @@
-<% content_for :title, "Request Detail" %>
+<% content_for :title, "Sample ##{@sample.id}" %>
 <% content_for :subtitle do %>
-  <span class="badge badge-<%= @sample.sample_type %>"><%= @sample.sample_type %></span>
-  <span class="badge badge-<%= @sample.kind %>"><%= @sample.kind %></span>
-  <strong><%= @bucket&.target %></strong>
-  &middot; <%= "%.1f" % @sample.duration %>ms
-  &middot; <%= @sample.recorded_at.strftime("%Y-%m-%d %H:%M:%S") %>
+  <%= type_badge(@sample.sample_type) %>
+  <%= type_badge(@sample.kind) %>
+  <%= @bucket&.target %>
+  &middot; <%= format_duration(@sample.duration) %>
 <% end %>
 
-<%
-  segment_colors = { "sql" => "#1f6feb", "view" => "#8957e5", "cache" => "#3fb950", "http" => "#da3633", "mailer" => "#d2a8ff", "storage" => "#56d364", "custom" => "#f0883e", "code" => "#d2a8ff", "controller" => "#e3b341", "middleware" => "#9e6a03", "request" => "#79c0ff" }
-  segment_labels = { "sql" => "SQL Queries", "view" => "View Renders", "cache" => "Cache Ops", "http" => "HTTP Calls", "mailer" => "Mailer", "storage" => "Storage", "custom" => "Custom", "code" => "App Code", "controller" => "Controller", "middleware" => "Middleware" }
-%>
-
-<%# ─── Request Info ─── %>
-<div class="grid">
-  <div class="card">
-    <div class="label">Duration</div>
-    <div class="value"><%= "%.1f" % @sample.duration %><span style="font-size:14px;color:#8b949e">ms</span></div>
-  </div>
-  <% if @summary.any? %>
-    <% segment_colors.each do |type, _color| %>
-      <% count = (@summary["#{type}_count"] || @summary[:"#{type}_count"] || 0).to_i %>
-      <% dur = (@summary["#{type}_duration"] || @summary[:"#{type}_duration"] || 0).to_f %>
-      <% next if count == 0 %>
-      <div class="card">
-        <div class="label"><%= segment_labels[type] || type.capitalize %></div>
-        <div class="value"><%= count %></div>
-        <div class="detail"><%= "%.1f" % dur %>ms total</div>
-      </div>
-    <% end %>
+<div class="breadcrumbs">
+  <a href="<%= catpm.status_index_path %>">Overview</a>
+  <% if @bucket %>
+    <span class="sep">/</span>
+    <a href="<%= catpm.endpoint_path(kind: @bucket.kind, target: @bucket.target, operation: @bucket.operation) %>"><%= @bucket.target %></a>
   <% end %>
-  <div class="card">
-    <div class="label">Endpoint</div>
-    <div class="value" style="font-size:16px"><%= @bucket&.target || "—" %></div>
-  </div>
+  <span class="sep">/</span>
+  <span>Sample #<%= @sample.id %></span>
 </div>
 
-<%# ─── Request Context ─── %>
+<%# ─── Request Info Bar ─── %>
 <% method_val = @context["method"] || @context[:method] %>
 <% path_val = @context["path"] || @context[:path] %>
 <% status_val = @context["status"] || @context[:status] %>
-<% if method_val || path_val %>
-  <h2>Request</h2>
-  <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin-bottom:12px">
-    <span class="mono" style="color:#f0f6fc; font-size:14px">
-      <strong><%= method_val %></strong> <%= path_val %>
-    </span>
-    <% if status_val %>
-      <span class="badge" style="margin-left:8px; background:<%= status_val.to_i >= 400 ? '#3f1f1f' : '#1f3f2a' %>; color:<%= status_val.to_i >= 400 ? '#f85149' : '#3fb950' %>"><%= status_val %></span>
-    <% end %>
-  </div>
-<% end %>
+<div class="request-bar">
+  <% if method_val %><strong class="mono"><%= method_val %></strong><% end %>
+  <% if path_val %><span class="mono"><%= path_val %></span><% end %>
+  <% if status_val %><%= status_badge(status_val) %><% end %>
+  <span class="sep">&middot;</span>
+  <span class="mono"><%= format_duration(@sample.duration) %></span>
+  <span class="sep">&middot;</span>
+  <span class="text-muted"><%= time_with_tooltip(@sample.recorded_at) %></span>
+</div>
 
-<%# ─── Time Breakdown Bar ─── %>
+<%# ─── Request Context + Full JSON side by side ─── %>
+<%
+  ctx_display = @context.except("segments", :segments, "segment_summary", :segment_summary, "segments_capped", :segments_capped, "backtrace", :backtrace)
+  ctx_flat = ctx_display.select { |_, v| !v.is_a?(Hash) && !v.is_a?(Array) }
+  ctx_nested = ctx_display.select { |_, v| v.is_a?(Hash) || v.is_a?(Array) }
+%>
+
+<div class="sample-layout">
+  <% if ctx_display.any? %>
+    <div class="sample-sidebar">
+      <h2 style="margin-top:0">Request Context</h2>
+      <% if ctx_flat.any? %>
+        <div class="context-grid" style="margin-bottom:12px">
+          <% ctx_flat.each do |k, v| %>
+            <div class="ctx-key"><%= k %></div>
+            <div class="ctx-val"><%= v.to_s.truncate(200) %></div>
+          <% end %>
+        </div>
+      <% end %>
+      <% if ctx_nested.any? %>
+        <% ctx_nested.each do |k, v| %>
+          <details class="collapsible" open>
+            <summary><%= k %></summary>
+            <div class="details-body">
+              <pre class="mono" style="color:var(--text-1); white-space:pre-wrap; font-size:12px"><%= JSON.pretty_generate(v) rescue v.inspect %></pre>
+            </div>
+          </details>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="sample-main">
+    <%# ─── Full JSON ─── %>
+    <details class="collapsible" open>
+      <summary>Full JSON</summary>
+      <div class="details-body">
+        <pre class="mono" style="color:var(--text-1); white-space:pre-wrap; font-size:12px; word-break:break-all"><%= JSON.pretty_generate(@context.except("segments", :segments)) rescue @context.inspect %></pre>
+      </div>
+    </details>
+  </div>
+</div>
+
+<%# ─── Time Breakdown (full width, above waterfall) ─── %>
 <% if @summary.any? %>
   <%
-    breakdown = segment_colors.map { |type, color|
+    breakdown = segment_colors.filter_map { |type, color|
       dur = (@summary["#{type}_duration"] || @summary[:"#{type}_duration"] || 0).to_f
-      [segment_labels[type] || type.capitalize, dur, color]
-    }.select { |_, dur, _| dur > 0 }
-    typed_total = breakdown.sum { |_, dur, _| dur }
+      count = (@summary["#{type}_count"] || @summary[:"#{type}_count"] || 0).to_i
+      next if dur <= 0
+      next if type == "code" && count <= 1 && dur < 1.0
+      text_color = segment_text_colors[type] || "#4b5563"
+      [segment_labels[type] || type.capitalize, dur, color, count, text_color]
+    }
+    typed_total = breakdown.sum { |_, dur, _, _, _| dur }
     other_dur = [@sample.duration - typed_total, 0].max
-    breakdown << ["Other", other_dur, "#484f58"] if other_dur > 0
+    breakdown << ["Other", other_dur, "#dde2e8", nil, "#4b5563"] if other_dur > 0.5
     total = @sample.duration
   %>
 
   <h2>Time Breakdown</h2>
-  <div style="display:flex; height:36px; border-radius:6px; overflow:hidden; margin-bottom:4px">
-    <% breakdown.each do |label, dur, color| %>
+  <div style="display:flex; height:32px; border-radius:4px; overflow:hidden; margin-bottom:4px; border:1px solid var(--border)">
+    <% breakdown.each do |label, dur, color, _, text| %>
       <% if dur > 0 && total > 0 %>
-        <div style="flex:<%= dur %>; background:<%= color %>; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
-          <% if dur / total > 0.08 %><%= label %> <%= "%.1f" % dur %>ms<% end %>
+        <div title="<%= label %> — <%= format_duration(dur) %> (<%= "%.0f" % (dur/total*100) %>%)" style="flex:<%= dur %>; background:<%= color %>; display:flex; align-items:center; justify-content:center; color:<%= text %>; font-size:11px; font-weight:500; overflow:hidden; white-space:nowrap; padding:0 4px;">
+          <% if dur / total > 0.08 %><%= label %><% end %>
         </div>
       <% end %>
     <% end %>
   </div>
-  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; font-size:11px; color:#8b949e">
-    <% breakdown.each do |label, dur, color| %>
-      <span><span style="display:inline-block;width:10px;height:10px;background:<%= color %>;border-radius:2px;margin-right:4px"></span><%= label %> <%= "%.1f" % dur %>ms (<%= "%.0f" % (total > 0 ? dur/total*100 : 0) %>%)</span>
+  <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px; font-size:12px; color:var(--text-1)">
+    <% breakdown.each do |label, dur, color, count, text| %>
+      <span><span style="display:inline-block;width:10px;height:10px;background:<%= color %>;border-radius:2px;margin-right:4px;border:1px solid <%= text %>22"></span><%= label %> <%= format_duration(dur) %> (<%= "%.0f" % (total > 0 ? dur/total*100 : 0) %>%)<%= " · #{count}" if count && count > 0 %></span>
     <% end %>
   </div>
 <% end %>
 
-<%# ─── Segments Timeline (Nested Waterfall) ─── %>
+<%# ─── Segments Waterfall (full width, no title) ─── %>
 <% if @segments.any? %>
-  <h2>Segments (<%= @segments.size %><%= @context["segments_capped"] || @context[:segments_capped] ? " — capped" : "" %>)</h2>
-
-  <% total_dur = @sample.duration %>
-  <% total_dur = 1.0 if total_dur == 0 %>
-
-  <%
-    # Build tree: compute children lists and depth per segment
-    children = Hash.new { |h, k| h[k] = [] }
-    roots = []
-    @segments.each_with_index do |seg, i|
-      pi = seg["parent_index"] || seg[:parent_index]
-      if pi.nil?
-        roots << i
-      else
-        children[pi.to_i] << i
-      end
-    end
-
-    depth_map = {}
-    ordered = []
-    build_order = ->(indices, depth) {
-      indices.each do |i|
-        depth_map[i] = depth
-        ordered << i
-        build_order.call(children[i], depth + 1)
-      end
-    }
-    build_order.call(roots, 0)
-
-    # Include any segments not reachable from roots (orphans from overflow)
-    @segments.each_index { |i| unless depth_map.key?(i); depth_map[i] = 0; ordered << i; end }
-
-    # For tree lines: determine if a segment is the last child of its parent
-    last_child = {}
-    ([nil] + @segments.each_index.to_a).each do |pi|
-      kids = pi.nil? ? roots : children[pi]
-      last_child[kids.last] = true if kids.any?
-    end
-
-    # Build tree prefix string for indentation
-    tree_prefix = ->(depth, index, current_pos) {
-      next "" if depth == 0
-      parts = []
-      (1...depth).each do |d|
-        has_more = false
-        ((current_pos + 1)...ordered.size).each do |j|
-          jd = depth_map[ordered[j]]
-          break if jd < d
-          if jd == d
-            has_more = true
-            break
-          end
-        end
-        parts << (has_more ? "│  " : "   ")
-      end
-      parts << (last_child[index] ? "└─ " : "├─ ")
-      parts.join
-    }
-  %>
-
-  <%
-    # Determine which segments are parents (have children)
-    has_children = Set.new
-    children.each { |pi, _kids| has_children << pi }
-  %>
-
-  <div style="background:#161b22; border:1px solid #30363d; border-radius:8px; overflow:hidden">
-    <table style="margin:0" id="segments-table">
-      <thead>
-        <tr>
-          <th style="width:55px">Type</th>
-          <th style="width:70px">Duration</th>
-          <th>Detail</th>
-          <th style="width:35%">Timeline</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% ordered.each_with_index do |seg_idx, pos| %>
-          <% seg = @segments[seg_idx] %>
-          <% type = (seg["type"] || seg[:type]).to_s %>
-          <% dur = (seg["duration"] || seg[:duration] || 0).to_f %>
-          <% offset = (seg["offset"] || seg[:offset] || 0).to_f %>
-          <% detail = (seg["detail"] || seg[:detail]).to_s %>
-          <% source = seg["source"] || seg[:source] %>
-          <% bar_color = segment_colors[type] || "#484f58" %>
-          <% left_pct = (offset / total_dur * 100).clamp(0, 99) %>
-          <% width_pct = (dur / total_dur * 100).clamp(0.5, 100 - left_pct) %>
-          <% depth = depth_map[seg_idx] %>
-          <% prefix = tree_prefix.call(depth, seg_idx, pos) %>
-          <% is_parent = has_children.include?(seg_idx) %>
-          <% pi = seg["parent_index"] || seg[:parent_index] %>
-
-          <tr data-seg="<%= seg_idx %>" data-depth="<%= depth %>"<%= " data-parent=\"#{pi}\"" if pi %><%= " data-has-children" if is_parent %>>
-            <td><span class="badge badge-<%= type %>"><%= type %></span></td>
-            <td class="mono" style="text-align:right"><%= "%.2f" % dur %>ms</td>
-            <td>
-              <div style="padding-left:<%= depth * 20 %>px">
-                <% if is_parent %>
-                  <span class="seg-toggle" data-seg="<%= seg_idx %>" onclick="toggleSegment(this)" title="Collapse/Expand">▾</span>
-                <% elsif depth > 0 %>
-                  <span class="seg-leaf"></span>
-                <% end %>
-                <% if depth > 0 %><span class="tree-indent"><%= prefix %></span><% end %>
-                <% if type == "sql" %>
-                  <span class="sql-text<%= detail.length > 60 ? ' sql-expandable' : '' %>" <%= detail.length > 60 ? 'onclick="this.classList.toggle(\'expanded\')" title="Click to expand"' : '' %>><%= detail %></span>
-                <% else %>
-                  <span class="mono"><%= detail %></span>
-                <% end %>
-                <% if source %>
-                  <div class="source"><%= source %></div>
-                <% end %>
-              </div>
-            </td>
-            <td>
-              <div class="bar-container">
-                <div class="bar-fill" style="margin-left:<%= left_pct %>%; width:<%= width_pct %>%; background:<%= bar_color %>"></div>
-              </div>
-            </td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
-  </div>
-
-  <script>
-    function toggleSegment(btn) {
-      var segId = btn.getAttribute('data-seg');
-      var collapsed = btn.textContent.trim() === '▸';
-      btn.textContent = collapsed ? '▾' : '▸';
-      var rows = document.querySelectorAll('#segments-table tbody tr');
-      var segDepth = null;
-      var found = false;
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        if (row.getAttribute('data-seg') === segId) {
-          found = true;
-          segDepth = parseInt(row.getAttribute('data-depth'));
-          continue;
-        }
-        if (found) {
-          var d = parseInt(row.getAttribute('data-depth'));
-          if (d <= segDepth) break;
-          if (collapsed) {
-            row.style.display = '';
-            // Re-collapse nested parents that were collapsed
-            var toggle = row.querySelector('.seg-toggle');
-            if (toggle && toggle.textContent.trim() === '▸') {
-              // This nested parent is collapsed, hide its children too
-              var nestedSeg = row.getAttribute('data-seg');
-              var nestedDepth = d;
-              for (var j = i + 1; j < rows.length; j++) {
-                var nd = parseInt(rows[j].getAttribute('data-depth'));
-                if (nd <= nestedDepth) break;
-                rows[j].style.display = 'none';
-              }
-            }
-          } else {
-            row.style.display = 'none';
-          }
-        }
-      }
-    }
-  </script>
-
-<% else %>
-  <h2>Segments</h2>
-  <div class="empty">No segments captured for this request.</div>
+  <%= render "catpm/shared/segments_waterfall", segments: @segments, total_duration: @sample.duration, segments_capped: @context["segments_capped"] || @context[:segments_capped], table_id: "segments-table" %>
 <% end %>
-
-<%# ─── Raw Context ─── %>
-<h2>Raw Context</h2>
-<div style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; overflow-x:auto">
-  <pre class="mono" style="color:#8b949e; white-space:pre-wrap"><%= JSON.pretty_generate(@context.except("segments", :segments)) rescue @context.inspect %></pre>
-</div>

@@ -70,11 +70,14 @@ module Catpm
                   existing.parsed_contexts, error_data[:new_contexts]
                 )
 
-                existing.update!(
+                attrs = {
                   occurrences_count: existing.occurrences_count + error_data[:occurrences_count],
                   last_occurred_at: [existing.last_occurred_at, error_data[:last_occurred_at]].max,
                   contexts: merged_contexts.to_json
-                )
+                }
+                attrs[:resolved_at] = nil if existing.resolved?
+
+                existing.update!(attrs)
               else
                 Catpm::ErrorRecord.create!(
                   fingerprint: error_data[:fingerprint],

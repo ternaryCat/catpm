@@ -2,13 +2,50 @@
 
 module Catpm
   class StatusController < ApplicationController
+    PER_PAGE = 25
+
     def index
-      buckets = Catpm::Bucket.order(bucket_start: :desc).to_a
+      # Time range (parsed first — everything below uses this)
+      @range = %w[1h 6h 24h].include?(params[:range]) ? params[:range] : "1h"
+      period, bucket_seconds = case @range
+        when "6h"  then [6.hours, 360]
+        when "24h" then [24.hours, 1440]
+        else            [1.hour, 60]
+      end
 
-      # Aggregate by (kind, target, operation)
-      grouped = buckets.group_by { |b| [b.kind, b.target, b.operation] }
+      recent_buckets = Catpm::Bucket.recent(period).to_a
 
-      @endpoints = grouped.map do |key, bs|
+      # Sparkline data
+      slots = {}
+      recent_buckets.each do |b|
+        slot_key = (b.bucket_start.to_i / bucket_seconds) * bucket_seconds
+        (slots[slot_key] ||= []) << b
+      end
+
+      now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds
+
+      @sparkline_requests = 60.times.map { |i| bs = slots[now_slot - (59 - i) * bucket_seconds]; bs ? bs.sum(&:count) : 0 }
+      @sparkline_errors = 60.times.map { |i| bs = slots[now_slot - (59 - i) * bucket_seconds]; bs ? bs.sum(&:failure_count) : 0 }
+      @sparkline_durations = 60.times.map do |i|
+        bs = slots[now_slot - (59 - i) * bucket_seconds]
+        next 0.0 unless bs
+        total = bs.sum(&:count)
+        total > 0 ? bs.sum(&:duration_sum) / total : 0.0
+      end
+      @sparkline_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime("%H:%M") }
+
+      recent_count = recent_buckets.sum(&:count)
+      recent_failures = recent_buckets.sum(&:failure_count)
+      period_minutes = period.to_f / 60
+      @recent_avg_duration = recent_count > 0 ? (recent_buckets.sum(&:duration_sum) / recent_count).round(1) : 0.0
+      @error_rate = recent_count > 0 ? (recent_failures.to_f / recent_count * 100).round(1) : 0.0
+      @requests_per_min = (recent_count / period_minutes).round(1)
+      @recent_count = recent_count
+
+      # Endpoints — aggregated from the SAME time range as hero metrics
+      grouped = recent_buckets.group_by { |b| [b.kind, b.target, b.operation] }
+
+      endpoints = grouped.map do |key, bs|
         kind, target, operation = key
         total_count = bs.sum(&:count)
         {
@@ -21,16 +58,28 @@ module Catpm
           total_failures: bs.sum(&:failure_count),
           last_seen: bs.map(&:bucket_start).max
         }
-      end.sort_by { |e| e[:last_seen] }.reverse.first(50)
+      end
 
-      @total_requests = buckets.sum(&:count)
-      @endpoint_count = grouped.size
+      # Kind filter (URL-based)
+      @available_kinds = endpoints.map { |e| e[:kind] }.uniq.sort
+      @kind_filter = params[:kind] if params[:kind].present? && @available_kinds.include?(params[:kind])
+      endpoints = endpoints.select { |e| e[:kind] == @kind_filter } if @kind_filter
+
+      # Server-side sort
+      @sort = %w[target total_count avg_duration max_duration total_failures last_seen].include?(params[:sort]) ? params[:sort] : "last_seen"
+      @dir = params[:dir] == "asc" ? "asc" : "desc"
+      endpoints = endpoints.sort_by { |e| e[@sort.to_sym] || "" }
+      endpoints = endpoints.reverse if @dir == "desc"
+
+      @total_endpoint_count = endpoints.size
+
+      # Pagination
+      @page = [params[:page].to_i, 1].max
+      @endpoints = endpoints.drop((@page - 1) * PER_PAGE).first(PER_PAGE)
+      @endpoint_count = @endpoints.size
 
       @samples = Catpm::Sample.order(recorded_at: :desc).limit(20)
-      @errors = Catpm::ErrorRecord.order(last_occurred_at: :desc).limit(20)
-      @stats = Catpm.stats
-      @buffer_size = Catpm.buffer&.size || 0
-      @buffer_bytes = Catpm.buffer&.current_bytes || 0
+      @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
   end
 end

@@ -13,9 +13,19 @@ module Catpm
     end
 
     def self.normalize_backtrace(backtrace)
-      backtrace
+      app_frames = backtrace
         .select { |line| app_frame?(line) }
         .first(5)
+        .map { |line| strip_line_number(line) }
+
+      # If there are app frames, group by app code (like Sentry)
+      return app_frames.join("\n") if app_frames.any?
+
+      # No app frames = error in a gem/library. Group by crash location
+      # so the same bug is always one issue regardless of the caller.
+      backtrace
+        .reject { |line| line.include?("<internal:") }
+        .first(3)
         .map { |line| strip_line_number(line) }
         .join("\n")
     end

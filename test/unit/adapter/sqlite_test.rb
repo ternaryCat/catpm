@@ -141,6 +141,41 @@ class SQLiteAdapterTest < ActiveSupport::TestCase
     assert_in_delta 1.0, result["x"], 0.01
   end
 
+  test "persist_errors clears resolved_at when resolved error recurs" do
+    now = Time.current
+    fp = "abc123" + "0" * 58
+
+    Catpm::ErrorRecord.create!(
+      fingerprint: fp,
+      kind: "http",
+      error_class: "RuntimeError",
+      message: "Something went wrong",
+      occurrences_count: 3,
+      first_occurred_at: 1.hour.ago,
+      last_occurred_at: 5.minutes.ago,
+      resolved_at: 2.minutes.ago,
+      contexts: [{ occurred_at: 5.minutes.ago.iso8601 }].to_json
+    )
+
+    assert Catpm::ErrorRecord.find_by(fingerprint: fp).resolved?
+
+    Catpm::Adapter::SQLite.persist_errors([{
+      fingerprint: fp,
+      kind: "http",
+      error_class: "RuntimeError",
+      message: "Something went wrong",
+      occurrences_count: 1,
+      first_occurred_at: now,
+      last_occurred_at: now,
+      new_contexts: [{ occurred_at: now.iso8601 }]
+    }])
+
+    error = Catpm::ErrorRecord.find_by(fingerprint: fp)
+    assert_not error.resolved?, "Error should be auto-unreresolved on recurrence"
+    assert_nil error.resolved_at
+    assert_equal 4, error.occurrences_count
+  end
+
   test "modulo_bucket_sql generates SQLite-compatible SQL" do
     sql = Catpm::Adapter::SQLite.modulo_bucket_sql(60)
     assert_includes sql, "strftime"

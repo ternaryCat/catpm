@@ -29,8 +29,8 @@ module Catpm
         @segments << segment
       else
         @overflow = true
-        min_idx = @segments.each_with_index.min_by { |s, _| s[:duration] }.last
-        if duration > @segments[min_idx][:duration]
+        min_idx = @segments.each_with_index.min_by { |s, _| s[:duration] || Float::INFINITY }.last
+        if duration > (@segments[min_idx][:duration] || Float::INFINITY)
           @segments[min_idx] = segment
         end
       end
