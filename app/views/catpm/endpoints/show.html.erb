@@ -48,54 +48,49 @@
 <% end %>
 
 <%# ─── Time Breakdown ─── %>
-<% sql_count = (@metadata["sql_count"] || @metadata[:sql_count] || 0).to_f %>
-<% sql_dur = (@metadata["sql_duration"] || @metadata[:sql_duration] || 0).to_f %>
-<% view_count = (@metadata["view_count"] || @metadata[:view_count] || 0).to_f %>
-<% view_dur = (@metadata["view_duration"] || @metadata[:view_duration] || 0).to_f %>
+<%
+  segment_colors = { "sql" => "#1f6feb", "view" => "#8957e5", "cache" => "#3fb950", "http" => "#da3633", "mailer" => "#d2a8ff", "storage" => "#56d364", "custom" => "#f0883e" }
+  segment_labels = { "sql" => "SQL queries", "view" => "View renders", "cache" => "Cache ops", "http" => "HTTP calls", "mailer" => "Mailer", "storage" => "Storage", "custom" => "Custom traces" }
+  type_data = segment_colors.map { |type, color|
+    count = (@metadata["#{type}_count"] || @metadata[:"#{type}_count"] || 0).to_f
+    dur = (@metadata["#{type}_duration"] || @metadata[:"#{type}_duration"] || 0).to_f
+    avg_dur = @count > 0 ? dur / @count : 0
+    avg_count = @count > 0 ? count / @count : 0
+    { type: type, label: segment_labels[type], color: color, count: count, dur: dur, avg_dur: avg_dur, avg_count: avg_count }
+  }.select { |d| d[:count] > 0 }
+%>
 
-<% if sql_count > 0 || view_count > 0 %>
+<% if type_data.any? %>
   <h2>Average Time Breakdown</h2>
 
-  <% avg_total = @avg_duration %>
-  <% avg_sql = @count > 0 ? sql_dur / @count : 0 %>
-  <% avg_view = @count > 0 ? view_dur / @count : 0 %>
-  <% avg_other = [avg_total - avg_sql - avg_view, 0].max %>
-
-  <% sql_pct = avg_total > 0 ? (avg_sql / avg_total * 100) : 0 %>
-  <% view_pct = avg_total > 0 ? (avg_view / avg_total * 100) : 0 %>
-  <% other_pct = [100 - sql_pct - view_pct, 0].max %>
+  <%
+    avg_total = @avg_duration
+    typed_avg = type_data.sum { |d| d[:avg_dur] }
+    avg_other = [avg_total - typed_avg, 0].max
+    bar_data = type_data.map { |d| [d[:label], d[:avg_dur], d[:color]] }
+    bar_data << ["Other", avg_other, "#484f58"] if avg_other > 0
+  %>
 
   <div style="margin-bottom: 16px">
-    <div style="display:flex; height:32px; border-radius:6px; overflow:hidden; gap:1px;">
-      <% if sql_pct > 0 %>
-        <div style="width:<%= sql_pct %>%; background:#1f6feb; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; min-width:40px;">
-          SQL <%= "%.0f" % sql_pct %>%
-        </div>
-      <% end %>
-      <% if view_pct > 0 %>
-        <div style="width:<%= view_pct %>%; background:#8957e5; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; min-width:40px;">
-          View <%= "%.0f" % view_pct %>%
-        </div>
-      <% end %>
-      <% if other_pct > 0 %>
-        <div style="width:<%= other_pct %>%; background:#484f58; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; min-width:40px;">
-          Other <%= "%.0f" % other_pct %>%
-        </div>
+    <div style="display:flex; height:32px; border-radius:6px; overflow:hidden;">
+      <% bar_data.each do |label, dur, color| %>
+        <% if dur > 0 && avg_total > 0 %>
+          <div style="flex:<%= dur %>; background:<%= color %>; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; overflow:hidden; white-space:nowrap; padding:0 4px;">
+            <% if dur / avg_total > 0.08 %><%= label %> <%= "%.0f" % (dur / avg_total * 100) %>%<% end %>
+          </div>
+        <% end %>
       <% end %>
     </div>
   </div>
 
   <div class="grid">
-    <div class="card">
-      <div class="label">Avg SQL queries</div>
-      <div class="value"><%= "%.0f" % (@count > 0 ? sql_count / @count : 0) %></div>
-      <div class="detail"><%= "%.1f" % avg_sql %>ms avg</div>
-    </div>
-    <div class="card">
-      <div class="label">Avg View renders</div>
-      <div class="value"><%= "%.0f" % (@count > 0 ? view_count / @count : 0) %></div>
-      <div class="detail"><%= "%.1f" % avg_view %>ms avg</div>
-    </div>
+    <% type_data.each do |d| %>
+      <div class="card">
+        <div class="label">Avg <%= d[:label] %></div>
+        <div class="value"><%= "%.0f" % d[:avg_count] %></div>
+        <div class="detail"><%= "%.1f" % d[:avg_dur] %>ms avg</div>
+      </div>
+    <% end %>
     <div class="card">
       <div class="label">Avg Other</div>
       <div class="value"><%= "%.1f" % avg_other %><span style="font-size:14px;color:#8b949e">ms</span></div>

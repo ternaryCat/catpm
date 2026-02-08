@@ -6,6 +6,7 @@ module Catpm
                   :instrument_http,
                   :instrument_jobs,
                   :instrument_segments,
+                  :instrument_net_http,
                   :max_segments_per_request,
                   :segment_source_threshold,
                   :max_sql_length,
@@ -22,15 +23,18 @@ module Catpm
                   :http_basic_auth_user,
                   :http_basic_auth_password,
                   :access_policy,
-                  :additional_filter_parameters
+                  :additional_filter_parameters,
+                  :auto_instrument_methods,
+                  :service_base_classes
 
     def initialize
       @enabled = true
       @instrument_http = true
       @instrument_jobs = false
       @instrument_segments = true
+      @instrument_net_http = false
       @max_segments_per_request = 50
-      @segment_source_threshold = 5.0 # ms — only capture caller_locations above this
+      @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments
       @max_sql_length = 200
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}
@@ -46,6 +50,8 @@ module Catpm
       @http_basic_auth_password = nil
       @access_policy = nil
       @additional_filter_parameters = []
+      @auto_instrument_methods = []
+      @service_base_classes = nil # nil = auto-detect (ApplicationService, BaseService)
     end
 
     def slow_threshold_for(kind)

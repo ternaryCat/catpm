@@ -97,6 +97,142 @@ class CollectorTest < ActiveSupport::TestCase
     assert_equal "[FILTERED]", password_val
   end
 
+  test "process_action_controller injects root request segment with parent_index" do
+    req_segments = Catpm::RequestSegments.new(max_segments: 50)
+    req_segments.add(type: :sql, duration: 5.0, detail: "SELECT 1")
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "UsersController", action: "index",
+      method: "GET", path: "/users", status: 200, duration: 42.5
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+
+    # Root segment injected at index 0
+    root = segments[0]
+    assert_equal "request", root[:type] || root["type"]
+    assert_equal "GET /users", root[:detail] || root["detail"]
+    assert_in_delta 42.5, (root[:duration] || root["duration"]), 0.01
+
+    # SQL segment shifted to index 1 with parent_index pointing to root
+    sql = segments[1]
+    assert_equal "sql", sql[:type] || sql["type"]
+    assert_equal 0, sql[:parent_index] || sql["parent_index"]
+  end
+
+  test "process_action_controller nests controller span under root request" do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate ControllerSpanSubscriber.start
+    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: start)
+    # SQL query inside controller
+    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: start)
+    # Simulate ControllerSpanSubscriber.finish
+    req_segments.pop_span(ctrl_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "UsersController", action: "index",
+      method: "GET", path: "/users", status: 200, duration: 42.5
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+
+    # [0] root request (injected, no parent_index)
+    # [1] controller "UsersController#index" (was index 0, had no parent -> parent_index: 0)
+    # [2] sql "SELECT ..." (was index 1, had parent_index: 0 -> 0+1=1)
+    assert_equal 3, segments.size
+    assert_equal "request", segments[0][:type]
+    refute segments[0].key?(:parent_index)
+
+    assert_equal "controller", segments[1][:type]
+    assert_equal 0, segments[1][:parent_index]
+
+    assert_equal "sql", segments[2][:type]
+    assert_equal 1, segments[2][:parent_index]
+  end
+
+  test "process_action_controller injects middleware segment when gap before controller" do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate ControllerSpanSubscriber starting 10ms after request (middleware time)
+    sleep(0.01)
+    ctrl_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: ctrl_start)
+    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: ctrl_start)
+    req_segments.pop_span(ctrl_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "UsersController", action: "index",
+      method: "GET", path: "/users", status: 200, duration: 50.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+
+    # [0] request, [1] middleware, [2] controller, [3] sql
+    assert_equal 4, segments.size
+    assert_equal "request", segments[0][:type]
+    assert_equal "middleware", segments[1][:type]
+    assert segments[1][:duration] >= 9.0, "Middleware duration should be >= 9ms, got #{segments[1][:duration]}"
+    assert_equal 0, segments[1][:parent_index]
+
+    assert_equal "controller", segments[2][:type]
+    assert_equal 0, segments[2][:parent_index]
+
+    assert_equal "sql", segments[3][:type]
+    assert_equal 2, segments[3][:parent_index], "SQL parent should point to controller (shifted)"
+  end
+
+  test "process_action_controller preserves nested parent_index after root injection" do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate Catpm.span("Outer") wrapping a SQL query
+    span_idx = req_segments.push_span(type: :custom, detail: "Outer", started_at: start)
+    req_segments.add(type: :sql, duration: 2.0, detail: "INSERT ...", started_at: start)
+    req_segments.pop_span(span_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "UsersController", action: "create",
+      method: "POST", path: "/users", status: 201, duration: 50.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+
+    # [0] root request (no parent_index)
+    # [1] custom "Outer" (parent_index: 0, was nil -> set to 0)
+    # [2] sql "INSERT" (parent_index: 1, was 0 -> 0+1=1)
+    assert_equal 3, segments.size
+    assert_equal "request", segments[0][:type]
+    refute segments[0].key?(:parent_index)
+
+    assert_equal "custom", segments[1][:type]
+    assert_equal 0, segments[1][:parent_index]
+
+    assert_equal "sql", segments[2][:type]
+    assert_equal 1, segments[2][:parent_index]
+  end
+
   test "process_active_job creates job event" do
     event = mock_job_event(
       job_class: "SendEmailJob", job_id: "abc-123",

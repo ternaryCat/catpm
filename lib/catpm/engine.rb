@@ -12,7 +12,12 @@ module Catpm
       if Catpm.enabled?
         Catpm::Subscribers.subscribe!
         Catpm::Lifecycle.register_hooks
+        Catpm::AutoInstrument.apply!
       end
+    end
+
+    config.to_prepare do
+      Catpm::AutoInstrument.apply! if Catpm.enabled?
     end
   end
 end

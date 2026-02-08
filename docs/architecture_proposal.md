@@ -266,6 +266,135 @@ span.finish  # or span.finish(error: e) to record failure
 
 All traces — regardless of source — produce the same `Catpm::Event` struct and enter the common aggregation funnel.
 
+#### Nested Spans (in-request waterfall)
+
+Inside an HTTP request, use `Catpm.span` to create nested segments that appear as a parent-child waterfall (similar to Elastic APM). Any SQL queries, HTTP calls, or other segments recorded inside the block automatically become children of the span:
+
+```ruby
+# Usage inside a controller/service during HTTP request:
+Catpm.span("PaymentService.process") do
+  payment = Payment.create!(...)        # SQL segments become children
+  Stripe::Charge.create(...)            # HTTP segments become children too
+end
+```
+
+**Behavior:**
+- **Inside request context** (`Thread.current[:catpm_request_segments]` present): Creates a segment with `push_span`/`pop_span`, establishing parent-child relationships via `parent_index`.
+- **Outside request context**: Falls back to `Catpm.trace` behavior (creates a standalone event).
+- Spans can be nested arbitrarily deep. The middleware automatically creates a root `:request` span wrapping the entire request.
+
+### 2.5.1. Extended Auto-Instrumentation (Segment-Level)
+
+Beyond SQL, views, and cache — catpm automatically instruments additional libraries to provide visibility into **what code runs inside each request**. Every additional segment type flows through the same `RequestSegments` collector, respects the same 50-segment cap, and adds **zero** memory overhead beyond what the existing architecture already accounts for.
+
+#### Instrumentation Tiers
+
+| Tier | Mechanism | Overhead | Activation |
+| --- | --- | --- | --- |
+| **Tier 0** (existing) | `ActiveSupport::Notifications` | ~1-5µs/event | Always on (sql, view, cache) |
+| **Tier 1** (new) | `ActiveSupport::Notifications` | ~1-5µs/event | Always on when library is loaded |
+| **Tier 2** (new) | `Module#prepend` on library class | ~1-5µs/call | Opt-in via config, auto-detected at boot |
+
+**Tier 1** subscribers attach to notifications that Rails already emits — zero monkey-patching, zero risk. **Tier 2** patches are applied via `Module#prepend` and only when the target library is loaded in the host application.
+
+#### Tier 1: Rails Notification Subscribers
+
+These use the same `ActiveSupport::Notifications.subscribe` pattern as the existing SQL/view/cache subscribers. They fire only when the corresponding Rails component is loaded.
+
+| Notification | Segment type | Detail | When present |
+| --- | --- | --- | --- |
+| `deliver.action_mailer` | `:mailer` | `"UserMailer#welcome to user@example.com"` | Action Mailer loaded |
+| `service_upload.active_storage` | `:storage` | `"upload avatar.jpg (245 KB)"` | Active Storage loaded |
+| `service_download.active_storage` | `:storage` | `"download avatar.jpg"` | Active Storage loaded |
+
+**Implementation pattern** (identical to existing subscribers):
+
+```ruby
+# In SegmentSubscribers.subscribe!
+if defined?(ActionMailer)
+  @mailer_subscriber = ActiveSupport::Notifications.subscribe(
+    "deliver.action_mailer"
+  ) do |event|
+    record_mailer_segment(event)
+  end
+end
+```
+
+These subscribers are **no-ops** if the corresponding Rails component is not loaded — they don't `require` anything, they simply check `defined?`.
+
+#### Tier 2: Net::HTTP Outbound Calls
+
+External HTTP calls (Stripe, Twilio, webhooks, REST APIs) are one of the most common sources of hidden latency. Most Ruby HTTP clients — Faraday, HTTParty, RestClient — use `Net::HTTP` under the hood, so a single patch covers them all.
+
+*   **Opt-in:** Disabled by default, enabled via `config.instrument_net_http = true`.
+*   **Auto-detected:** The patch is only applied if `Net::HTTP` is loaded. If the user enables it but the library is absent, catpm logs a warning and skips.
+*   **Request-scoped:** The patch checks `Thread.current[:catpm_request_segments]` and is a pure no-op outside of HTTP request context (zero overhead for background jobs, console, or rake tasks).
+*   **Minimal:** The prepended method calls `super` and records a segment — no behavior change, no exception swallowing.
+
+| Library | Patched method | Segment type | Detail | Config flag |
+| --- | --- | --- | --- | --- |
+| `Net::HTTP` | `Net::HTTP#request` | `:http` | `"GET api.stripe.com/v1/charges (200)"` | `instrument_net_http` |
+
+**Implementation:**
+
+```ruby
+module Catpm
+  module Patches
+    module NetHttp
+      def request(req, body = nil, &block)
+        segments = Thread.current[:catpm_request_segments]
+        unless segments
+          return super
+        end
+
+        start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        response = super
+        duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0
+
+        detail = "#{req.method} #{@address}#{req.path} (#{response.code})"
+        source = duration >= Catpm.config.segment_source_threshold ? Catpm::SegmentSubscribers.send(:extract_source_location) : nil
+
+        segments.add(
+          type: :http, duration: duration, detail: detail,
+          source: source, started_at: start
+        )
+
+        response
+      end
+    end
+  end
+end
+```
+
+**Patch activation** (once at boot, during `config.after_initialize`):
+
+```ruby
+# lib/catpm/lifecycle.rb (within register_hooks)
+def self.apply_patches
+  if Catpm.config.instrument_net_http && defined?(::Net::HTTP)
+    require "catpm/patches/net_http"
+    ::Net::HTTP.prepend(Catpm::Patches::NetHttp)
+  end
+end
+```
+
+`Module#prepend` is irreversible, but the `Thread.current[:catpm_request_segments]` guard ensures the patch is a pure no-op when catpm is disabled or outside request context.
+
+#### Memory Safety Proof
+
+Extended instrumentation adds **zero additional memory pressure** beyond what the existing architecture already budgets:
+
+| Concern | Guarantee |
+| --- | --- |
+| **Segments per request** | Same 50-segment cap (`config.max_segments_per_request`). New types compete with SQL/view/cache for slots — the slowest 50 segments win regardless of type. |
+| **Per-segment size** | Identical structure: `{type, duration, detail, source?, offset?}`. An `:http` segment is the same ~100-300 bytes as a `:sql` segment. |
+| **Summary counters** | Dynamic keys (`{type}_count`, `{type}_duration`) add ~16 bytes per active type per request. With 7 types max: 112 bytes — negligible vs 32 MB buffer budget. |
+| **Buffer memory** | No change. Segments are part of the event's `context` hash, already accounted for in `estimated_bytes`. |
+| **Patch overhead** | `Thread.current` lookup + `Process.clock_gettime` = ~1µs. `super` call is unmodified. No allocations on the fast path (no segment captured when collector is absent). |
+| **DB storage** | No schema changes. New segment types are stored in the same `context` JSONB on `catpm_samples`. Summary counters merge into the same `metadata_sum` on `catpm_buckets`. |
+
+**Worst-case analysis:** A request that triggers 200 SQL queries, 5 outbound HTTP calls, 2 mailer deliveries, and 3 view renders still stores only 50 segments. The summary accurately counts all 210 operations. Memory per request: unchanged.
+
 ### 2.6. Installation Strategy
 
 To ensure a smooth "Day 1" experience, a single generator handles all setup:
@@ -543,27 +672,50 @@ The dashboard renders the context differently depending on `kind` — HTTP sampl
 
 #### 3.4.1. Request-Level Segment Tracking
 
-HTTP samples include per-request **segments** — individual SQL queries, view renders, and their source locations. This enables drill-down into what happened inside a specific request.
+HTTP samples include per-request **segments** — individual SQL queries, view renders, outbound HTTP calls, mailer deliveries, storage operations, and their source locations. This enables drill-down into what happened inside a specific request, similar to Elastic APM's transaction waterfall.
+
+**Segment types:**
+
+| Type | Source | Detail example |
+| --- | --- | --- |
+| `sql` | `sql.active_record` subscriber | `SELECT "users".* FROM "users" LIMIT 20` |
+| `view` | `render_template/partial.action_view` subscriber | `app/views/users/index.html.erb` |
+| `cache` | `cache_read/write.active_support` subscriber | `cache.read users/1 (hit)` |
+| `mailer` | `deliver.action_mailer` subscriber | `UserMailer#welcome to user@example.com` |
+| `storage` | `service_upload/download.active_storage` subscriber | `upload avatar.jpg (245 KB)` |
+| `http` | `Net::HTTP#request` prepend patch (opt-in) | `GET api.stripe.com/v1/charges (200)` |
+| `custom` | `Catpm.segment` API (manual) | User-defined label |
+
+All segment types share the same data structure and compete for the same 50-segment pool (see Resource Constraints below).
 
 **Segment structure in `context`:**
 
 ```json
 {
-  "method": "GET", "path": "/users", "status": 200,
+  "method": "GET", "path": "/checkout", "status": 200,
   "segments": [
-    {"type": "sql", "duration": 2.3, "detail": "SELECT \"users\".* FROM \"users\" LIMIT 20"},
-    {"type": "sql", "duration": 12.5, "detail": "SELECT \"posts\".* FROM ...", "source": "app/models/user.rb:42"},
-    {"type": "view", "duration": 8.3, "detail": "app/views/users/index.html.erb"}
+    {"type": "request", "duration": 150.0, "detail": "GET /checkout", "parent_index": null},
+    {"type": "custom", "duration": 80.0, "detail": "PaymentService.process", "parent_index": 0},
+    {"type": "sql", "duration": 2.3, "detail": "SELECT \"users\".* FROM \"users\" LIMIT 20", "parent_index": 1},
+    {"type": "sql", "duration": 12.5, "detail": "SELECT \"orders\".* FROM ...", "source": "app/models/user.rb:42", "parent_index": 1},
+    {"type": "http", "duration": 340.2, "detail": "POST api.stripe.com/v1/charges (200)", "source": "app/services/payment.rb:18", "parent_index": 1},
+    {"type": "mailer", "duration": 45.0, "detail": "OrderMailer#confirmation to user@example.com", "parent_index": 0},
+    {"type": "view", "duration": 8.3, "detail": "app/views/orders/show.html.erb", "parent_index": 0}
   ],
-  "segment_summary": {"sql_count": 15, "sql_duration": 45.2, "view_count": 3, "view_duration": 12.8},
+  "segment_summary": {"sql_count": 15, "sql_duration": 45.2, "view_count": 3, "view_duration": 12.8, "http_count": 1, "http_duration": 340.2, "mailer_count": 1, "mailer_duration": 45.0, "request_count": 1, "request_duration": 150.0},
   "segments_capped": false
 }
 ```
 
+**Dynamic summary counters:** The `segment_summary` uses dynamic keys (`{type}_count`, `{type}_duration`) rather than a fixed set. This means new segment types are automatically tracked in the summary without code changes to `RequestSegments`. The `metadata_sum` additive merge on `catpm_buckets` works identically — any numeric JSONB key is summed.
+
 **How it works:**
 
 1. Rack Middleware creates a `RequestSegments` collector in `Thread.current[:catpm_request_segments]`.
-2. `ActiveSupport::Notifications` subscribers for `sql.active_record` and `render_template/partial.action_view` fire during request processing and add segments to the collector.
+2. Subscribers fire during request processing and add segments to the collector:
+   *   **Tier 0** (always on): `sql.active_record`, `render_template.action_view`, `render_partial.action_view`, `cache_read.active_support`, `cache_write.active_support`.
+   *   **Tier 1** (auto-detected): `deliver.action_mailer`, `service_upload.active_storage`, `service_download.active_storage` — subscribed only when the corresponding Rails component is loaded.
+   *   **Tier 2** (opt-in): `Net::HTTP#request` prepend — fires inline during the outbound call and records timing.
 3. `process_action.action_controller` fires **after** all inner events. The Collector reads `Thread.current[:catpm_request_segments]`, merges segments into `context` (for samples) and summary counters into `metadata` (for bucket aggregation).
 4. Middleware `ensure` block clears `Thread.current[:catpm_request_segments]`.
 
@@ -1569,6 +1721,9 @@ Filtering is applied at the Collector stage — sensitive data never reaches the
 | **Capped segments (50, keep slowest)** | Bounded memory per request. Summary counters always accurate. | Fast segments may be evicted; waterfall may be incomplete for segment-heavy requests. |
 | **`caller_locations` only above threshold** | Negligible overhead for typical requests (~95% of queries are fast). | No source info for sub-threshold segments. Threshold must be tuned per app. |
 | **Direct flusher start (no Puma plugin)** | Works for all common deployments (single, clustered without preload). Simpler code. | Requires manual `on_worker_boot` for Puma clustered + `preload_app!` (power-user config). |
+| **Net::HTTP prepend patch (opt-in)** | Covers all HTTP clients (Faraday, HTTParty, RestClient) with a single patch. Shows external API latency in request waterfall. | Irreversible `Module#prepend` — stays active for process lifetime. Opt-in to avoid surprises. |
+| **Tier 1 subscribers auto-detected** | Action Mailer / Active Storage segments with zero configuration when loaded. | Subscribers registered even if never triggered — negligible overhead (~1 notification check). |
+| **Dynamic summary keys** | New segment types auto-tracked in summary without code changes. Extensible for user-defined types. | `metadata_sum` JSONB keys grow per unique type — bounded by the small fixed set of types (≤7). |
 
 ## 12. Configuration
 
@@ -1586,7 +1741,8 @@ Catpm.configure do |config|
   # Instrumentation
   config.instrument_http = true              # Auto-track HTTP requests (default: true)
   config.instrument_jobs = false             # Auto-track ActiveJob perform (default: false)
-  config.instrument_segments = true          # Track SQL/view segments per request (default: true)
+  config.instrument_segments = true          # Track SQL/view/cache segments per request (default: true)
+  config.instrument_net_http = false         # Patch Net::HTTP to track outbound HTTP calls (default: false)
   config.max_segments_per_request = 50       # Cap segments per request (keeps slowest when full)
   config.segment_source_threshold = 5.0      # ms — only capture caller_locations above this
   config.max_sql_length = 200                # Truncate SQL queries to this length
@@ -1630,6 +1786,7 @@ end
 | **TDigest merge contention** | Low | Per-bucket advisory lock; contention only when two workers flush the same endpoint simultaneously |
 | **SQLite `BUSY` under write contention** | Medium | `busy_timeout` (5s) + `flush_jitter` (±5s) + `BEGIN IMMEDIATE`. If exceeded → circuit breaker handles as DB failure (7.3.3) |
 | **SQLite flush slower than PG** | Low | Read-modify-write in single transaction. ~50-200 buckets/flush at ~0.1ms each = 5-20ms total. Acceptable for target workload. |
+| **Net::HTTP patch conflicts with other gems** | Low | `Module#prepend` composes cleanly with other prepends (New Relic, Datadog). The patch calls `super` unconditionally — it does not alter behavior, only observes. Opt-in via config. |
 
 ## 14. Future Scope (Out of v1)
 
@@ -1640,4 +1797,6 @@ These features are intentionally excluded from v1 to keep scope tight:
 *   **API endpoint** — JSON API for external integrations.
 *   **Distributed tracing** — request ID propagation across services.
 *   **Export** — Prometheus `/metrics` endpoint for Grafana integration.
-*   **Additional auto-instrumentations** — Sidekiq-native (non-ActiveJob) middleware, Action Cable channels, Action Mailbox.
+*   **Additional Tier 2 patches** — Redis (`RedisClient#call`), Elasticsearch, gRPC — added when there is real demand from users.
+*   **Sidekiq-native middleware** — non-ActiveJob instrumentation.
+*   **Action Cable / Action Mailbox** — channel-level and mailbox-level tracking.

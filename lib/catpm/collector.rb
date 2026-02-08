@@ -19,7 +19,47 @@ module Catpm
         req_segments = Thread.current[:catpm_request_segments]
         if req_segments
           segment_data = req_segments.to_h
-          context[:segments] = segment_data[:segments]
+          segments = segment_data[:segments]
+
+          # Inject root request segment with known duration
+          root_segment = {
+            type: "request",
+            detail: "#{payload[:method]} #{payload[:path]}",
+            duration: duration.round(2),
+            offset: 0.0
+          }
+          segments.each do |seg|
+            if seg.key?(:parent_index)
+              seg[:parent_index] += 1
+            else
+              seg[:parent_index] = 0
+            end
+          end
+          segments.unshift(root_segment)
+
+          # Inject middleware segment if there's a time gap before the controller action
+          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          if ctrl_idx
+            ctrl_offset = (segments[ctrl_idx][:offset] || 0.0).to_f
+            if ctrl_offset > 0.5
+              middleware_seg = {
+                type: "middleware",
+                detail: "Middleware Stack",
+                duration: ctrl_offset.round(2),
+                offset: 0.0,
+                parent_index: 0
+              }
+              segments.insert(1, middleware_seg)
+              # Shift parent_index for segments that moved down
+              segments.each_with_index do |seg, i|
+                next if i <= 1
+                next unless seg.key?(:parent_index)
+                seg[:parent_index] += 1 if seg[:parent_index] >= 1
+              end
+            end
+          end
+
+          context[:segments] = segments
           context[:segment_summary] = segment_data[:segment_summary]
           context[:segments_capped] = segment_data[:segments_capped]
 

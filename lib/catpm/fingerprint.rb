@@ -25,6 +25,11 @@ module Catpm
       return false if line.include?("/gems/")
       return false if line.include?("/ruby/")
       return false if line.include?("<internal:")
+      return false if line.include?("/catpm/")
+
+      if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
+        return line.start_with?(Rails.root.to_s) if line.start_with?("/")
+      end
 
       line.start_with?("app/") || line.include?("/app/")
     end

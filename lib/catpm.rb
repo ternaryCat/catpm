@@ -17,6 +17,8 @@ require "catpm/subscribers"
 require "catpm/segment_subscribers"
 require "catpm/lifecycle"
 require "catpm/trace"
+require "catpm/span_helpers"
+require "catpm/auto_instrument"
 require "catpm/engine"
 
 module Catpm

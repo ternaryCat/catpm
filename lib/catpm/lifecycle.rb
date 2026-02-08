@@ -8,6 +8,7 @@ module Catpm
 
         initialize_buffer
         initialize_flusher
+        apply_patches
 
         # Always start the flusher in the current process.
         # For forking servers, also register post-fork hooks
@@ -28,6 +29,13 @@ module Catpm
       end
 
       private
+
+      def apply_patches
+        if Catpm.config.instrument_net_http && defined?(::Net::HTTP)
+          require "catpm/patches/net_http"
+          ::Net::HTTP.prepend(Catpm::Patches::NetHttp)
+        end
+      end
 
       def initialize_buffer
         Catpm.buffer ||= Buffer.new(max_bytes: Catpm.config.max_buffer_memory)
