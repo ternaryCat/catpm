@@ -6,12 +6,7 @@ module Catpm
 
     def index
       # Time range (parsed first — everything below uses this)
-      @range = %w[1h 6h 24h].include?(params[:range]) ? params[:range] : "1h"
-      period, bucket_seconds = case @range
-        when "6h"  then [6.hours, 360]
-        when "24h" then [24.hours, 1440]
-        else            [1.hour, 60]
-      end
+      @range, period, bucket_seconds = helpers.parse_range(params[:range])
 
       recent_buckets = Catpm::Bucket.recent(period).to_a
 

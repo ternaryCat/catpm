@@ -1,11 +1,7 @@
 <% content_for :title, "System" %>
 <% content_for :subtitle, "Diagnostics & Configuration" %>
 
-<div class="breadcrumbs">
-  <a href="<%= catpm.status_index_path %>">Overview</a>
-  <span class="sep">/</span>
-  <span>System</span>
-</div>
+<%= render "catpm/shared/page_nav", active: "system" %>
 
 <%# ─── Pipeline ─── %>
 <h2>Data Pipeline</h2>
@@ -121,6 +117,9 @@
   var r1 = pnodes[1].getBoundingClientRect();
   if (r1.top > r0.bottom - 10) return;
 
+  // Find arrow elements between nodes for path routing
+  var arrows = el.querySelectorAll('.pipeline-arrow');
+
   var canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2';
   el.style.position = 'relative';
@@ -143,22 +142,33 @@
 
   function zones() {
     var pr = el.getBoundingClientRect();
-    return Array.prototype.map.call(pnodes, function(n) {
+    var nodeZones = Array.prototype.map.call(pnodes, function(n) {
       var r = n.getBoundingClientRect();
       return {
         l: r.left - pr.left, r: r.right - pr.left,
         t: r.top - pr.top, b: r.bottom - pr.top,
         cx: (r.left + r.right) / 2 - pr.left,
+        cy: (r.top + r.bottom) / 2 - pr.top,
         w: r.width, h: r.height
       };
     });
+    // Arrow centers
+    var arrowZones = Array.prototype.map.call(arrows, function(a) {
+      var r = a.getBoundingClientRect();
+      return {
+        l: r.left - pr.left, r: r.right - pr.left,
+        cx: (r.left + r.right) / 2 - pr.left,
+        cy: (r.top + r.bottom) / 2 - pr.top
+      };
+    });
+    return { nodes: nodeZones, arrows: arrowZones };
   }
 
   var C = { ok: '#1a7f37', error: '#cf222e', slow: '#9a6700', sample: '#8250df' };
   var POOL = ['ok','ok','ok','ok','ok','ok','ok','slow','slow','error','sample'];
   var SZ = 5;
   var MAX_BUF = 36;
-  var FLUSH_MS = 8000;
+  var FLUSH_MS = 5000;
 
   var METHODS = ['GET','GET','GET','GET','POST','POST','PUT','PATCH','DELETE'];
   var RPATHS = ['/users','/home','/orders','/api','/settings',
@@ -189,6 +199,9 @@
     ctx.closePath();
   }
 
+  // Linear interpolation
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
   var particles = [];
   var batchAcc = 0;
   var flushAcc = 0;
@@ -196,19 +209,22 @@
 
   function randType() { return POOL[Math.floor(Math.random() * POOL.length)]; }
 
-  function bufCols(bz) { return Math.max(1, Math.floor((bz.w - 16) / (SZ + 2))); }
+  // Buffer slots: vertical columns, right-aligned, bottom-to-top, like a queue
+  function bufRowsPerCol(bz) { return Math.max(1, Math.floor((bz.h - 20) / (SZ + 2))); }
   function bufSlot(idx, bz) {
-    var cols = bufCols(bz);
+    var perCol = bufRowsPerCol(bz);
+    var col = Math.floor(idx / perCol);
+    var row = idx % perCol;
     return {
-      x: bz.l + 8 + (idx % cols) * (SZ + 2) + SZ / 2,
-      y: bz.b - 10 - Math.floor(idx / cols) * (SZ + 2) - SZ / 2
+      x: bz.r - 10 - col * (SZ + 2) - SZ / 2,
+      y: bz.b - 10 - row * (SZ + 2) - SZ / 2
     };
   }
 
   var initBuf = Math.min(parseInt(el.dataset.buffer) || 0, MAX_BUF);
 
   function seedBuffer(z) {
-    var buf = z[1];
+    var buf = z.nodes[1];
     for (var i = 0; i < initBuf; i++) {
       var s = bufSlot(i, buf);
       particles.push({
@@ -225,8 +241,9 @@
     prev = t;
 
     var z = zones();
-    if (z.length < 4) { requestAnimationFrame(tick); return; }
-    var cap = z[0], buf = z[1], flu = z[2], db = z[3];
+    if (z.nodes.length < 4) { requestAnimationFrame(tick); return; }
+    var cap = z.nodes[0], buf = z.nodes[1], flu = z.nodes[2], db = z.nodes[3];
+    var arrow0 = z.arrows[0] || { cx: (cap.r + buf.l) / 2, cy: cap.cy };
     var laneY = cap.t + cap.h * 0.42;
 
     if (initBuf > 0) seedBuffer(z);
@@ -258,12 +275,12 @@
           var s = bufSlot(bc + j, buf);
           particles.push({
             type: type, label: label, labelW: lw,
-            x: cap.l - 20, // start off-screen left
+            x: cap.l - 20,
             y: yBase + j * spacing,
-            phase: 0, // 0=enter, 1=linger, 2=to buffer
-            lingerTime: 1200 + Math.random() * 800,
+            phase: 0, // 0=enter, 1=linger, 2=smooth glide to slot
+            lingerTime: 300 + Math.random() * 400,
             lingerAcc: 0,
-            state: 0, opacity: 0, age: 0,
+            state: 0, opacity: 0, age: 0, progress: 0,
             slotX: s.x, slotY: s.y
           });
         }
@@ -300,10 +317,10 @@
         p.age = (p.age || 0) + dt;
 
         if (p.phase === 0) {
-          // Entering: slide in from left, fade in, move to Capture center
-          p.opacity = Math.min(0.9, p.opacity + dt * 0.004);
+          // Entering: slide in from left to Capture center
+          p.opacity = Math.min(0.9, p.opacity + dt * 0.005);
           var dx = cap.cx - p.x;
-          p.x += dx * 0.006 * dt;
+          p.x += dx * 0.008 * dt;
           if (Math.abs(dx) < 3) {
             p.phase = 1;
             p.x = cap.cx;
@@ -311,30 +328,35 @@
           }
         }
         else if (p.phase === 1) {
-          // Lingering at Capture: text readable
+          // Lingering at Capture (shorter time)
           p.opacity = 0.9;
           p.lingerAcc += dt;
-          if (p.lingerAcc > p.lingerTime) p.phase = 2;
+          if (p.lingerAcc > p.lingerTime) {
+            p.phase = 2;
+            p.progress = 0;
+            // Save start position for path interpolation
+            p.startX = p.x;
+            p.startY = p.y;
+          }
         }
         else if (p.phase === 2) {
-          // Moving to Buffer through the arrow, shrinking
-          var dx = p.slotX - p.x, dy = p.slotY - p.y;
-          p.x += dx * 0.002 * dt;
-          p.y += dy * 0.002 * dt;
-          p.y += Math.sin(p.age * 0.004) * 0.2;
-          if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+          // Smooth glide directly from Capture → slot position
+          p.progress = Math.min(1, p.progress + dt * 0.0012);
+          var ease = p.progress * p.progress * (3 - 2 * p.progress); // smoothstep
+          p.x = lerp(p.startX, p.slotX, ease);
+          p.y = lerp(p.startY, p.slotY, ease);
+          if (p.progress >= 1) {
             p.state = 1;
-            p.x = p.slotX; p.y = p.slotY;
+            p.x = p.slotX;
+            p.y = p.slotY;
             p.opacity = 0.8;
           }
         }
       }
       else if (p.state === 1) {
-        // In buffer — micro-jiggle
-        p.x += (p.slotX - p.x) * 0.12;
-        p.y += (p.slotY - p.y) * 0.12;
-        p.x += (Math.random() - 0.5) * 0.15;
-        p.y += (Math.random() - 0.5) * 0.15;
+        // In buffer — snap to grid, no jiggle
+        p.x = p.slotX;
+        p.y = p.slotY;
       }
       else if (p.state === 2) {
         // Flushing: Buffer → arrow → Flush (pause) → arrow → Database
@@ -377,18 +399,14 @@
       var p = particles[i];
       if (p.opacity <= 0.01) continue;
 
-      // Scale: full-size block at Capture, shrinks through the arrow zone
+      // Scale: full-size at Capture, shrinks to 0 as it glides toward the buffer slot
       var scale = 0;
       if (p.state === 0) {
         if (p.phase <= 1) {
           scale = 1;
         } else {
-          // Shrink as particle crosses from Capture right-edge through arrow into Buffer
-          var shrinkStart = cap.r - cap.w * 0.12;
-          var shrinkEnd = buf.l + buf.w * 0.18;
-          if (p.x < shrinkStart) scale = 1;
-          else if (p.x < shrinkEnd) scale = 1 - (p.x - shrinkStart) / (shrinkEnd - shrinkStart);
-          else scale = 0;
+          // Shrink based on progress along the glide (0→1)
+          scale = Math.max(0, 1 - p.progress * 1.5); // fully small by ~67% of the path
         }
       }
 

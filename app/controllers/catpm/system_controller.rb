@@ -11,6 +11,7 @@ module Catpm
       @sample_count = Catpm::Sample.count
       @error_count = Catpm::ErrorRecord.count
       @oldest_bucket = Catpm::Bucket.minimum(:bucket_start)
+      @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
   end
 end

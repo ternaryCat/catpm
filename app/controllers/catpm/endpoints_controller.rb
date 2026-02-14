@@ -8,13 +8,12 @@ module Catpm
       @operation = params[:operation].presence || ""
 
       # Time range filter
-      @range = %w[1h 6h 24h all].include?(params[:range]) ? params[:range] : "all"
+      @range, period, _bucket_seconds = helpers.parse_range(params[:range], extra_valid: ["all"])
 
       scope = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
 
       if @range != "all"
-        period = { "1h" => 1.hour, "6h" => 6.hours, "24h" => 24.hours }[@range]
         scope = scope.where("bucket_start >= ?", period.ago)
       end
 
@@ -57,6 +56,8 @@ module Catpm
       @slow_samples = endpoint_samples.where(sample_type: "slow").order(duration: :desc).limit(10)
       @samples = endpoint_samples.where(sample_type: "random").order(recorded_at: :desc).limit(10)
       @error_samples = endpoint_samples.where(sample_type: "error").order(recorded_at: :desc).limit(10)
+
+      @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
   end
 end

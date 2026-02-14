@@ -37,7 +37,9 @@ module Catpm
                   :sqlite_busy_timeout,
                   :persistence_batch_size,
                   :backtrace_lines,
-                  :shutdown_timeout
+                  :shutdown_timeout,
+                  :events_enabled,
+                  :events_max_samples_per_name
 
     def initialize
       @enabled = true
@@ -76,6 +78,8 @@ module Catpm
       @persistence_batch_size = 100
       @backtrace_lines = 10
       @shutdown_timeout = 5 # seconds
+      @events_enabled = false
+      @events_max_samples_per_name = 20
     end
 
     def slow_threshold_for(kind)

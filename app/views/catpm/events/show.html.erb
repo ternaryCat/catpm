@@ -1,0 +1,86 @@
+<% content_for :title, @name %>
+<% content_for :subtitle, "Event Detail" %>
+
+<%= render "catpm/shared/page_nav", active: "events" %>
+
+<div class="breadcrumbs">
+  <a href="<%= catpm.events_path(range: @range) %>">Events</a>
+  <span class="sep">/</span>
+  <span class="badge badge-event"><%= @name %></span>
+</div>
+
+<%# ─── Time Range ─── %>
+<div class="time-range">
+  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
+    <a href="<%= catpm.event_path(name: @name, range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% end %>
+</div>
+
+<%# ─── Hero Metrics ─── %>
+<div class="grid-hero">
+  <div class="card">
+    <div class="label">Total Count</div>
+    <div class="value"><%= @total_count %></div>
+    <div class="detail"><%= range_label(@range) %></div>
+  </div>
+  <div class="card">
+    <div class="label">Events / min</div>
+    <div class="value"><%= @events_per_min %></div>
+    <div class="detail"><%= range_label(@range) %></div>
+  </div>
+  <div class="card">
+    <div class="label">Last Seen</div>
+    <div class="value" style="font-size:18px"><%= @last_seen ? time_with_tooltip(@last_seen) : "—" %></div>
+  </div>
+</div>
+
+<%# ─── Bar Chart ─── %>
+<h2>Event Volume</h2>
+<%= section_description("Events per time slot over the selected range.") %>
+<div style="border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:24px; position:relative">
+  <%= bar_chart_svg(@chart_data, width: 600, height: 180, color: "var(--accent)", time_labels: @chart_times) %>
+</div>
+
+<%# ─── Recent Samples ─── %>
+<h2>Recent Samples</h2>
+<%= section_description("Most recent event payloads captured.") %>
+
+<% if @samples.any? %>
+  <table style="table-layout:fixed">
+    <colgroup>
+      <col style="width:120px">
+      <col>
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Recorded At</th>
+        <th>Payload</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @samples.each do |sample| %>
+        <tr>
+          <td style="white-space:nowrap; vertical-align:top"><%= time_with_tooltip(sample.recorded_at) %></td>
+          <td style="vertical-align:top">
+            <% payload = sample.parsed_payload %>
+            <% if payload.any? %>
+              <details class="collapsible-compact">
+                <summary><%= payload.keys.first(3).join(", ") %><%= "..." if payload.keys.size > 3 %></summary>
+                <div class="details-body">
+                  <pre style="font-size:12px; white-space:pre-wrap; word-break:break-all; margin:0"><%= JSON.pretty_generate(payload) %></pre>
+                </div>
+              </details>
+            <% else %>
+              <span class="text-muted">—</span>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% else %>
+  <div class="empty-state">
+    <div class="empty-title">No samples recorded</div>
+    <div class="empty-hint">Events without payloads don't generate samples.</div>
+  </div>
+<% end %>

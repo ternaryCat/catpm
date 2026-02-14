@@ -11,6 +11,14 @@ module Catpm
         raise NotImplementedError
       end
 
+      def persist_event_buckets(event_buckets)
+        raise NotImplementedError
+      end
+
+      def persist_event_samples(event_samples)
+        raise NotImplementedError
+      end
+
       def persist_samples(samples, bucket_map)
         ActiveRecord::Base.connection_pool.with_connection do
           samples.each_slice(Catpm.config.persistence_batch_size) do |batch|

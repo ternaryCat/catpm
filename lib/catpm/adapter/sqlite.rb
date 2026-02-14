@@ -56,6 +56,55 @@ module Catpm
           end
         end
 
+        def persist_event_buckets(event_buckets)
+          return if event_buckets.empty?
+
+          with_write_lock do
+            event_buckets.each do |bucket_data|
+              existing = Catpm::EventBucket.find_by(
+                name: bucket_data[:name],
+                bucket_start: bucket_data[:bucket_start]
+              )
+
+              if existing
+                existing.update!(count: existing.count + bucket_data[:count])
+              else
+                Catpm::EventBucket.create!(
+                  name: bucket_data[:name],
+                  bucket_start: bucket_data[:bucket_start],
+                  count: bucket_data[:count]
+                )
+              end
+            end
+          end
+        end
+
+        def persist_event_samples(event_samples)
+          return if event_samples.empty?
+
+          max = Catpm.config.events_max_samples_per_name
+
+          with_write_lock do
+            event_samples.each_slice(Catpm.config.persistence_batch_size) do |batch|
+              records = batch.map do |sample_data|
+                { name: sample_data[:name], payload: sample_data[:payload]&.to_json, recorded_at: sample_data[:recorded_at] }
+              end
+              Catpm::EventSample.insert_all(records) if records.any?
+            end
+
+            event_samples.map { |s| s[:name] }.uniq.each do |name|
+              count = Catpm::EventSample.where(name: name).count
+              if count > max
+                excess_ids = Catpm::EventSample.where(name: name)
+                  .order(recorded_at: :asc)
+                  .limit(count - max)
+                  .pluck(:id)
+                Catpm::EventSample.where(id: excess_ids).delete_all
+              end
+            end
+          end
+        end
+
         def persist_errors(error_records)
           return if error_records.empty?
 

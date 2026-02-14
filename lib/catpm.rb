@@ -3,6 +3,7 @@
 require "catpm/version"
 require "catpm/configuration"
 require "catpm/event"
+require "catpm/custom_event"
 require "catpm/tdigest"
 require "catpm/errors"
 require "catpm/buffer"
@@ -59,6 +60,11 @@ module Catpm
 
     def reset_stats!
       @stats = { dropped_events: 0, circuit_opens: 0, flushes: 0 }
+    end
+
+    def event(name, **payload)
+      return unless enabled? && config.events_enabled
+      buffer&.push(CustomEvent.new(name: name, payload: payload))
     end
   end
 end

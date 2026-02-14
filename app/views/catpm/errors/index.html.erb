@@ -1,11 +1,7 @@
 <% content_for :title, "Errors" %>
 <% content_for :subtitle, "#{@active_count} active, #{@resolved_count} resolved" %>
 
-<div class="breadcrumbs">
-  <a href="<%= catpm.status_index_path %>">Overview</a>
-  <span class="sep">/</span>
-  <span>Errors</span>
-</div>
+<%= render "catpm/shared/page_nav", active: "errors" %>
 
 <div class="tabs">
   <a href="<%= catpm.errors_path(tab: "active") %>" class="tab <%= 'active' if @tab == 'active' %>">Active (<%= @active_count %>)</a>

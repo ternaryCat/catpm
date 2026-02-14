@@ -1,0 +1,73 @@
+<% content_for :title, "Events" %>
+<% content_for :subtitle, "Custom Event Tracking" %>
+
+<%= render "catpm/shared/page_nav", active: "events" %>
+
+<%# ─── Time Range ─── %>
+<div class="time-range">
+  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
+    <a href="<%= catpm.events_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% end %>
+  <span style="margin-left:auto; font-size:12px; color:var(--text-2)">
+    Updated <%= Time.current.strftime("%H:%M:%S") %>
+  </span>
+</div>
+
+<%# ─── Hero Metrics ─── %>
+<div class="grid-hero">
+  <div class="card">
+    <div class="label">Total Events</div>
+    <div class="value"><%= @total_events %></div>
+    <div class="detail"><%= range_label(@range) %></div>
+  </div>
+  <div class="card">
+    <div class="label">Unique Names</div>
+    <div class="value"><%= @unique_names %></div>
+    <div class="detail">distinct event types</div>
+  </div>
+  <div class="card">
+    <div class="label">Events / min</div>
+    <div class="value"><%= @events_per_min %></div>
+    <div class="detail"><%= range_label(@range) %></div>
+  </div>
+</div>
+
+<%# ─── Events Table ─── %>
+<h2>Events <% if @total_event_names > @events.size %><span class="text-muted" style="font-weight:400; font-size:13px">(showing <%= @events.size %> of <%= @total_event_names %>)</span><% end %></h2>
+<%= section_description("Events tracked in the selected time range.") %>
+
+<% if @events.any? %>
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th><%= sort_header("Name", "name", @sort, @dir, extra_params: { range: @range }) %></th>
+        <th><%= sort_header("Count", "total_count", @sort, @dir, extra_params: { range: @range }) %></th>
+        <th>Trend</th>
+        <th><%= sort_header("Last Seen", "last_seen", @sort, @dir, extra_params: { range: @range }) %></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @events.each do |ev| %>
+        <tr class="linked">
+          <td>
+            <a href="<%= catpm.event_path(name: ev[:name], range: @range) %>" class="row-link">
+              <span class="badge badge-event"><%= ev[:name] %></span>
+            </a>
+          </td>
+          <td><%= ev[:total_count] %></td>
+          <td><%= sparkline_svg(ev[:sparkline], width: 120, height: 32, color: "var(--accent)", time_labels: @sparkline_times) %></td>
+          <td><%= time_with_tooltip(ev[:last_seen]) %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  </div>
+  <% ep_extra = { range: @range, sort: @sort, dir: @dir } %>
+  <%= pagination_nav(@page, @total_event_names, Catpm::EventsController::PER_PAGE, extra_params: ep_extra) %>
+<% else %>
+  <div class="empty-state">
+    <div class="empty-title">No events tracked yet</div>
+    <div class="empty-hint">Use <code>Catpm.event("name")</code> to start tracking custom events.</div>
+  </div>
+<% end %>

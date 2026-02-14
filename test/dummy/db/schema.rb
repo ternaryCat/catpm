@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_06_01_000004) do
+ActiveRecord::Schema[8.1].define(version: 2025_06_01_000001) do
   create_table "catpm_buckets", force: :cascade do |t|
     t.datetime "bucket_start", null: false
     t.integer "count", default: 0, null: false
@@ -41,6 +41,22 @@ ActiveRecord::Schema[8.1].define(version: 2025_06_01_000004) do
     t.datetime "resolved_at"
     t.index ["fingerprint"], name: "idx_catpm_errors_fingerprint", unique: true
     t.index ["kind", "last_occurred_at"], name: "idx_catpm_errors_kind_time"
+  end
+
+  create_table "catpm_event_buckets", force: :cascade do |t|
+    t.datetime "bucket_start", null: false
+    t.integer "count", default: 0, null: false
+    t.string "name", null: false
+    t.index ["bucket_start"], name: "idx_catpm_event_buckets_time"
+    t.index ["name", "bucket_start"], name: "idx_catpm_event_buckets_unique", unique: true
+  end
+
+  create_table "catpm_event_samples", force: :cascade do |t|
+    t.string "name", null: false
+    t.json "payload"
+    t.datetime "recorded_at", null: false
+    t.index ["name", "recorded_at"], name: "idx_catpm_event_samples_name_time"
+    t.index ["recorded_at"], name: "idx_catpm_event_samples_time"
   end
 
   create_table "catpm_samples", force: :cascade do |t|

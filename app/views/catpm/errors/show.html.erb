@@ -5,9 +5,9 @@
   &middot; <%= @error.occurrences_count %> occurrences
 <% end %>
 
+<%= render "catpm/shared/page_nav", active: "errors" %>
+
 <div class="breadcrumbs">
-  <a href="<%= catpm.status_index_path %>">Overview</a>
-  <span class="sep">/</span>
   <a href="<%= catpm.errors_path(tab: @error.resolved? ? "resolved" : "active") %>">Errors</a>
   <span class="sep">/</span>
   <span><%= @error.error_class %></span>

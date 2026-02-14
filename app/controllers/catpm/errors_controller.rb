@@ -8,6 +8,7 @@ module Catpm
       @tab = params[:tab] == "resolved" ? "resolved" : "active"
       @active_count = Catpm::ErrorRecord.unresolved.count
       @resolved_count = Catpm::ErrorRecord.resolved.count
+      @active_error_count = @active_count
 
       scope = if @tab == "resolved"
         Catpm::ErrorRecord.resolved
@@ -33,6 +34,7 @@ module Catpm
     def show
       @error = Catpm::ErrorRecord.find(params[:id])
       @contexts = @error.parsed_contexts
+      @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
 
     def resolve

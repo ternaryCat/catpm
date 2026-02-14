@@ -1,14 +1,11 @@
 <% content_for :title, "Overview" %>
 <% content_for :subtitle, "Application Performance Monitor" %>
 
-<div class="page-nav">
-  <a href="<%= catpm.errors_path %>">Errors<% if @active_error_count > 0 %><span class="nav-count alert"><%= @active_error_count %></span><% end %></a>
-  <a href="<%= catpm.system_index_path %>">System</a>
-</div>
+<%= render "catpm/shared/page_nav", active: "performance" %>
 
 <%# ─── Time Range ─── %>
 <div class="time-range">
-  <% %w[1h 6h 24h].each do |r| %>
+  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
     <a href="<%= catpm.status_index_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
   <% end %>
   <span style="margin-left:auto; font-size:12px; color:var(--text-2)">

@@ -35,6 +35,18 @@ module Catpm
       "controller" => "Controller", "middleware" => "Middleware", "request" => "Request"
     }.freeze
 
+    RANGES = {
+      "1h"  => [1.hour,   60],
+      "6h"  => [6.hours,  360],
+      "24h" => [24.hours, 1440],
+      "1w"  => [1.week,   (1.week / 60).to_i],
+      "2w"  => [2.weeks,  (2.weeks / 60).to_i],
+      "1m"  => [30.days,  (30.days / 60).to_i],
+      "1y"  => [365.days, (365.days / 60).to_i]
+    }.freeze
+
+    RANGE_KEYS = RANGES.keys.freeze
+
     def segment_colors
       SEGMENT_COLORS
     end
@@ -110,6 +122,41 @@ module Catpm
       %(<svg width="#{width}" height="#{height}" viewBox="0 0 #{width} #{height}" xmlns="http://www.w3.org/2000/svg" style="display:block;position:relative">#{fill_el}<polyline points="#{coords_str.join(" ")}" fill="none" stroke="#{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>#{circles}</svg>).html_safe
     end
 
+    def bar_chart_svg(data_points, width: 600, height: 200, color: "var(--accent)", time_labels: nil)
+      return "" if data_points.blank?
+      points = data_points.map(&:to_i)
+      max_val = points.max
+      max_val = 1 if max_val == 0
+      bar_count = points.size
+      gap = 2
+      bar_width = ((width.to_f - (bar_count - 1) * gap) / bar_count).round(2)
+      bar_width = [bar_width, 1].max
+
+      bars = points.each_with_index.map do |val, i|
+        x = (i * (bar_width + gap)).round(2)
+        bar_h = (val.to_f / max_val * (height - 20)).round(2)
+        y = height - bar_h
+        time_attr = time_labels ? %( data-time="#{time_labels[i]}") : ""
+        rx = [bar_width / 4, 2].min.round(1)
+        # Visible bar
+        bar = %(<rect x="#{x}" y="#{y}" width="#{bar_width}" height="#{bar_h}" fill="#{color}" rx="#{rx}" ry="#{rx}" opacity="0.85"/>)
+        # Invisible hover target (full height)
+        hover = %(<rect x="#{x}" y="0" width="#{bar_width}" height="#{height}" fill="transparent" data-value="#{val}"#{time_attr} class="sparkline-dot"/>)
+        bar + hover
+      end.join
+
+      # Gridlines
+      gridlines = [0.25, 0.5, 0.75].map do |pct|
+        gy = (height - pct * (height - 20)).round(1)
+        %(<line x1="0" y1="#{gy}" x2="#{width}" y2="#{gy}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4,3"/>)
+      end.join
+
+      svg = %(<svg width="100%" height="#{height}" viewBox="0 0 #{width} #{height}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="display:block">#{gridlines}#{bars}</svg>)
+      max_label = %(<span class="bar-chart-max">#{max_val}</span>)
+
+      %(<div class="bar-chart-wrap">#{svg}#{max_label}</div>).html_safe
+    end
+
     def relative_time(time)
       return "—" unless time
       time = Time.parse(time) if time.is_a?(String)
@@ -160,10 +207,22 @@ module Catpm
       %(<span class="status-dot"><span class="dot" style="background:#{color}"></span> #{label}</span>).html_safe
     end
 
+    def parse_range(range_str, extra_valid: [])
+      valid = RANGE_KEYS + extra_valid
+      key = valid.include?(range_str) ? range_str : "1h"
+      return [key, nil, nil] if extra_valid.include?(key) && !RANGES.key?(key)
+      period, bucket_seconds = RANGES[key]
+      [key, period, bucket_seconds]
+    end
+
     def range_label(range)
       case range
-      when "6h" then "Last 6 hours"
+      when "6h"  then "Last 6 hours"
       when "24h" then "Last 24 hours"
+      when "1w"  then "Last week"
+      when "2w"  then "Last 2 weeks"
+      when "1m"  then "Last month"
+      when "1y"  then "Last year"
       else "Last hour"
       end
     end

@@ -4,6 +4,12 @@ module Catpm
   class Engine < ::Rails::Engine
     isolate_namespace Catpm
 
+    initializer "catpm.migrations" do |app|
+      config.paths["db/migrate"].expanded.each do |path|
+        app.config.paths["db/migrate"] << path unless app.config.paths["db/migrate"].include?(path)
+      end
+    end
+
     initializer "catpm.middleware" do |app|
       app.middleware.insert_before 0, Catpm::Middleware
     end

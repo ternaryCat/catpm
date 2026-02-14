@@ -43,16 +43,30 @@ module Catpm
       events = @buffer.drain
       return if events.empty?
 
-      buckets, samples, errors = aggregate(events)
+      perf_events, custom_events = events.partition { |e| e.is_a?(Catpm::Event) }
 
-      ActiveRecord::Base.connection_pool.with_connection do
-        adapter = Catpm::Adapter.current
-        adapter.persist_buckets(buckets)
+      if perf_events.any?
+        buckets, samples, errors = aggregate(perf_events)
 
-        bucket_map = build_bucket_map(buckets)
-        samples = rotate_samples(samples)
-        adapter.persist_samples(samples, bucket_map)
-        adapter.persist_errors(errors)
+        ActiveRecord::Base.connection_pool.with_connection do
+          adapter = Catpm::Adapter.current
+          adapter.persist_buckets(buckets)
+
+          bucket_map = build_bucket_map(buckets)
+          samples = rotate_samples(samples)
+          adapter.persist_samples(samples, bucket_map)
+          adapter.persist_errors(errors)
+        end
+      end
+
+      if custom_events.any?
+        event_buckets, event_samples = aggregate_custom_events(custom_events)
+
+        ActiveRecord::Base.connection_pool.with_connection do
+          adapter = Catpm::Adapter.current
+          adapter.persist_event_buckets(event_buckets)
+          adapter.persist_event_samples(event_samples)
+        end
       end
 
       @circuit.record_success
@@ -264,6 +278,30 @@ module Catpm
       map
     end
 
+    def aggregate_custom_events(events)
+      bucket_groups = {}
+      samples = []
+      sample_counts = Hash.new(0)
+
+      events.each do |event|
+        key = [event.name, event.bucket_start]
+        bucket_groups[key] ||= { name: event.name, bucket_start: event.bucket_start, count: 0 }
+        bucket_groups[key][:count] += 1
+
+        max = Catpm.config.events_max_samples_per_name
+        if event.payload.any?
+          if sample_counts[event.name] < max
+            samples << { name: event.name, payload: event.payload, recorded_at: event.recorded_at }
+            sample_counts[event.name] += 1
+          elsif rand(Catpm.config.random_sample_rate) == 0
+            samples << { name: event.name, payload: event.payload, recorded_at: event.recorded_at }
+          end
+        end
+      end
+
+      [bucket_groups.values, samples]
+    end
+
     def maybe_cleanup
       return if Time.now - @last_cleanup_at < Catpm.config.cleanup_interval
 
@@ -289,6 +327,10 @@ module Catpm
         age_threshold: 24.hours,
         adapter: adapter
       )
+
+      # Event buckets: same two-phase downsampling (simple SUM counts)
+      downsample_event_tier(target_interval: bucket_sizes[:medium], age_threshold: 1.hour, adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:old], age_threshold: 24.hours, adapter: adapter)
     end
 
     def downsample_tier(target_interval:, age_threshold:, adapter:)
@@ -339,6 +381,29 @@ module Catpm
       end
     end
 
+    def downsample_event_tier(target_interval:, age_threshold:, adapter:)
+      cutoff = age_threshold.ago
+      target_seconds = target_interval.to_i
+
+      source_buckets = Catpm::EventBucket.where(bucket_start: ...cutoff).to_a
+      return if source_buckets.empty?
+
+      groups = source_buckets.group_by do |bucket|
+        epoch = bucket.bucket_start.to_i
+        aligned_epoch = epoch - (epoch % target_seconds)
+        aligned_start = Time.at(aligned_epoch).utc
+        [bucket.name, aligned_start]
+      end
+
+      groups.each do |(name, aligned_start), buckets|
+        next if buckets.size == 1 && buckets.first.bucket_start.to_i % target_seconds == 0
+
+        merged = { name: name, bucket_start: aligned_start, count: buckets.sum(&:count) }
+        Catpm::EventBucket.where(id: buckets.map(&:id)).delete_all
+        adapter.persist_event_buckets([merged])
+      end
+    end
+
     def merge_bucket_metadata(buckets, adapter)
       buckets.reduce({}) do |acc, b|
         adapter.merge_metadata_sum(acc, b.metadata_sum)
@@ -368,6 +433,14 @@ module Catpm
       end
 
       Catpm::ErrorRecord.where(last_occurred_at: ...cutoff).limit(batch_size).delete_all
+
+      [Catpm::EventBucket, Catpm::EventSample].each do |model|
+        time_column = model == Catpm::EventSample ? :recorded_at : :bucket_start
+        loop do
+          deleted = model.where(time_column => ...cutoff).limit(batch_size).delete_all
+          break if deleted < batch_size
+        end
+      end
     end
   end
 end
