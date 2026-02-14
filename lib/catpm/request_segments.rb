@@ -4,13 +4,19 @@ module Catpm
   class RequestSegments
     attr_reader :segments, :summary, :request_start
 
-    def initialize(max_segments:, request_start: nil)
+    def initialize(max_segments:, request_start: nil, stack_sample: false)
       @max_segments = max_segments
       @request_start = request_start || Process.clock_gettime(Process::CLOCK_MONOTONIC)
       @segments = []
       @overflow = false
       @summary = Hash.new(0)
       @span_stack = []
+      @tracked_ranges = []
+
+      if stack_sample
+        @sampler = StackSampler.new(target_thread: Thread.current, request_start: @request_start)
+        @sampler.start
+      end
     end
 
     def add(type:, duration:, detail:, source: nil, started_at: nil)
@@ -24,6 +30,11 @@ module Catpm
       segment[:offset] = offset if offset
       segment[:source] = source if source
       segment[:parent_index] = @span_stack.last if @span_stack.any?
+
+      # Record time range so sampler can skip already-tracked periods
+      if started_at && duration > 0
+        @tracked_ranges << [started_at, started_at + duration / 1000.0]
+      end
 
       if @segments.size < @max_segments
         @segments << segment
@@ -65,6 +76,14 @@ module Catpm
       type_key = segment[:type].to_sym
       @summary[:"#{type_key}_count"] += 1
       @summary[:"#{type_key}_duration"] += duration
+    end
+
+    def stop_sampler
+      @sampler&.stop
+    end
+
+    def sampler_segments
+      @sampler&.to_segments(tracked_ranges: @tracked_ranges) || []
     end
 
     def overflowed?

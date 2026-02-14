@@ -7,6 +7,7 @@ module Catpm
                   :instrument_jobs,
                   :instrument_segments,
                   :instrument_net_http,
+                  :instrument_stack_sampler,
                   :max_segments_per_request,
                   :segment_source_threshold,
                   :max_sql_length,
@@ -44,6 +45,7 @@ module Catpm
       @instrument_jobs = false
       @instrument_segments = true
       @instrument_net_http = false
+      @instrument_stack_sampler = false
       @instrument_middleware_stack = false
       @max_segments_per_request = 50
       @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments (set higher to reduce overhead)

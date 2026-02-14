@@ -80,7 +80,7 @@
       dur = (@summary["#{type}_duration"] || @summary[:"#{type}_duration"] || 0).to_f
       count = (@summary["#{type}_count"] || @summary[:"#{type}_count"] || 0).to_i
       next if dur <= 0
-      next if type == "code" && count <= 1 && dur < 1.0
+      next if (type == "code" || type == "other") && count <= 1 && dur < 1.0
       text_color = segment_text_colors[type] || "#4b5563"
       [segment_labels[type] || type.capitalize, dur, color, count, text_color]
     }

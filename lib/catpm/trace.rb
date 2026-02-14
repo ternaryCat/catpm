@@ -61,6 +61,60 @@ module Catpm
     Span.new(name: name, metadata: metadata, context: context)
   end
 
+  # Instrument a block as a full request — creates a controller span,
+  # collects all segments (SQL, cache, etc.), and pushes a complete Event.
+  # Use this for non-ActionController contexts (webhooks, custom endpoints).
+  #
+  #   Catpm.track_request(kind: :custom, target: "WebhookController#message") do
+  #     process_update(...)
+  #   end
+  #
+  def self.track_request(kind: :http, target:, operation: "", context: {}, metadata: {})
+    return yield unless enabled?
+
+    req_segments = Thread.current[:catpm_request_segments]
+    owns_segments = false
+
+    if req_segments.nil? && config.instrument_segments
+      req_segments = RequestSegments.new(
+        max_segments: config.max_segments_per_request,
+        request_start: Process.clock_gettime(Process::CLOCK_MONOTONIC),
+        stack_sample: config.instrument_stack_sampler
+      )
+      Thread.current[:catpm_request_segments] = req_segments
+      owns_segments = true
+    end
+
+    if req_segments
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      ctrl_idx = req_segments.push_span(type: :controller, detail: target, started_at: started_at)
+    end
+
+    error = nil
+    start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    begin
+      yield
+    rescue => e
+      error = e
+      raise
+    ensure
+      duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time) * 1000.0
+      req_segments&.pop_span(ctrl_idx) if ctrl_idx
+      req_segments&.stop_sampler
+
+      Collector.process_tracked(
+        kind: kind, target: target, operation: operation,
+        duration: duration, context: context, metadata: metadata,
+        error: error, req_segments: req_segments
+      )
+
+      if owns_segments
+        Thread.current[:catpm_request_segments] = nil
+      end
+    end
+  end
+
   class Span
     def initialize(name:, metadata: {}, context: {})
       @name = name

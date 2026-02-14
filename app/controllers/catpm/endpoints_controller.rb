@@ -10,16 +10,15 @@ module Catpm
       # Time range filter
       @range = %w[1h 6h 24h all].include?(params[:range]) ? params[:range] : "all"
 
-      @buckets = Catpm::Bucket
+      scope = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
-        .order(bucket_start: :desc)
 
       if @range != "all"
         period = { "1h" => 1.hour, "6h" => 6.hours, "24h" => 24.hours }[@range]
-        @buckets = @buckets.where("bucket_start >= ?", period.ago)
+        scope = scope.where("bucket_start >= ?", period.ago)
       end
 
-      @aggregate = @buckets.pick(
+      @aggregate = scope.pick(
         "SUM(count)",
         "SUM(duration_sum)",
         "MAX(duration_max)",
@@ -33,6 +32,8 @@ module Catpm
 
       @avg_duration = @count > 0 ? @duration_sum / @count : 0.0
       @failure_rate = @count > 0 ? @failure_count.to_f / @count : 0.0
+
+      @buckets = scope.order(bucket_start: :desc)
 
       # Merge all TDigests for combined percentiles
       @tdigest = @buckets.filter_map(&:tdigest).reduce { |merged, td| merged.merge(td); merged }

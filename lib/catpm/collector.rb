@@ -68,7 +68,7 @@ module Catpm
             end
           end
 
-          # Inject synthetic "execution" segment for untracked controller time
+          # Fill untracked controller time with sampler data or synthetic segment
           ctrl_idx = segments.index { |s| s[:type] == "controller" }
           if ctrl_idx
             ctrl_seg = segments[ctrl_idx]
@@ -79,14 +79,9 @@ module Catpm
               (seg[:parent_index] == ctrl_idx) ? (seg[:duration] || 0).to_f : 0.0
             end
             gap = ctrl_dur - child_dur
+
             if gap > 1.0
-              segments << {
-                type: "code",
-                detail: "Controller execution (serialization, callbacks, etc.)",
-                duration: gap.round(2),
-                offset: (ctrl_seg[:offset] || 0.0),
-                parent_index: ctrl_idx
-              }
+              inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
             end
           end
 
@@ -159,6 +154,76 @@ module Catpm
         Catpm.buffer&.push(ev)
       end
 
+      def process_tracked(kind:, target:, operation:, duration:, context:, metadata:, error:, req_segments:)
+        return unless Catpm.enabled?
+        return if Catpm.config.ignored?(target)
+
+        context = (context || {}).dup
+        metadata = (metadata || {}).dup
+
+        if req_segments
+          segment_data = req_segments.to_h
+          segments = segment_data[:segments]
+
+          # Inject root request segment
+          root_segment = {
+            type: "request",
+            detail: "#{operation.presence || kind} #{target}",
+            duration: duration.round(2),
+            offset: 0.0
+          }
+          segments.each do |seg|
+            if seg.key?(:parent_index)
+              seg[:parent_index] += 1
+            else
+              seg[:parent_index] = 0
+            end
+          end
+          segments.unshift(root_segment)
+
+          # Fill untracked controller time with sampler data or synthetic segment
+          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          if ctrl_idx
+            ctrl_seg = segments[ctrl_idx]
+            ctrl_dur = (ctrl_seg[:duration] || 0).to_f
+            child_dur = segments.each_with_index.sum do |pair|
+              seg, i = pair
+              next 0.0 if i == ctrl_idx
+              (seg[:parent_index] == ctrl_idx) ? (seg[:duration] || 0).to_f : 0.0
+            end
+            gap = ctrl_dur - child_dur
+
+            if gap > 1.0
+              inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
+            end
+          end
+
+          context[:segments] = segments
+          context[:segment_summary] = segment_data[:segment_summary]
+          context[:segments_capped] = segment_data[:segments_capped]
+
+          segment_data[:segment_summary]&.each do |k, v|
+            metadata[k] = v
+          end
+        end
+
+        ev = Event.new(
+          kind: kind,
+          target: target,
+          operation: operation.to_s,
+          duration: duration,
+          started_at: Time.current,
+          status: error ? 500 : 200,
+          context: scrub(context),
+          metadata: metadata,
+          error_class: error&.class&.name,
+          error_message: error&.message,
+          backtrace: error&.backtrace
+        )
+
+        Catpm.buffer&.push(ev)
+      end
+
       def process_custom(name:, duration:, metadata: {}, error: nil, context: {})
         return unless Catpm.enabled?
         return if Catpm.config.ignored?(name)
@@ -180,6 +245,49 @@ module Catpm
       end
 
       private
+
+      def inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
+        sampler_groups = req_segments&.sampler_segments || []
+
+        if sampler_groups.any?
+          sampler_dur = 0.0
+
+          sampler_groups.each do |group|
+            parent = group[:parent]
+            children = group[:children] || []
+
+            parent_idx = segments.size
+            parent[:parent_index] = ctrl_idx
+            segments << parent
+            sampler_dur += (parent[:duration] || 0).to_f
+
+            children.each do |child|
+              child[:parent_index] = parent_idx
+              child[:collapsed] = true
+              segments << child
+            end
+          end
+
+          remaining = gap - sampler_dur
+          if remaining > 1.0
+            segments << {
+              type: "other",
+              detail: "Untracked",
+              duration: remaining.round(2),
+              offset: (ctrl_seg[:offset] || 0.0),
+              parent_index: ctrl_idx
+            }
+          end
+        else
+          segments << {
+            type: "other",
+            detail: "Untracked",
+            duration: gap.round(2),
+            offset: (ctrl_seg[:offset] || 0.0),
+            parent_index: ctrl_idx
+          }
+        end
+      end
 
       def build_http_context(payload)
         {

@@ -31,9 +31,16 @@ module Catpm
       private
 
       def apply_patches
-        if Catpm.config.instrument_net_http && defined?(::Net::HTTP)
-          require "catpm/patches/net_http"
-          ::Net::HTTP.prepend(Catpm::Patches::NetHttp)
+        if Catpm.config.instrument_net_http
+          if defined?(::Net::HTTP)
+            require "catpm/patches/net_http"
+            ::Net::HTTP.prepend(Catpm::Patches::NetHttp)
+          end
+
+          if defined?(::HTTPClient)
+            require "catpm/patches/httpclient"
+            ::HTTPClient.prepend(Catpm::Patches::Httpclient)
+          end
         end
       end
 

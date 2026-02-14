@@ -152,11 +152,12 @@ module Catpm
         record_count = payload[:record_count] || 0
         class_name = payload[:class_name] || "ActiveRecord"
         detail = "#{class_name} x#{record_count}"
+        source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         # Fold into sql summary for cleaner breakdown
         req_segments.add(
           type: :sql, duration: duration, detail: detail,
-          started_at: event.time
+          source: source, started_at: event.time
         )
       end
 
@@ -187,10 +188,11 @@ module Catpm
         hit = event.payload[:hit]
         detail = "cache.#{operation} #{key}"
         detail += hit ? " (hit)" : " (miss)" if operation == "read" && !hit.nil?
+        source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         req_segments.add(
           type: :cache, duration: duration, detail: detail,
-          started_at: event.time
+          source: source, started_at: event.time
         )
       end
 
@@ -202,10 +204,11 @@ module Catpm
         mailer = payload[:mailer].to_s
         to = Array(payload[:to]).first.to_s
         detail = to.empty? ? mailer : "#{mailer} to #{to}"
+        source = event.duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         req_segments.add(
           type: :mailer, duration: event.duration, detail: detail,
-          started_at: event.time
+          source: source, started_at: event.time
         )
       end
 
@@ -216,10 +219,11 @@ module Catpm
         payload = event.payload
         key = payload[:key].to_s
         detail = "#{operation} #{key}"
+        source = event.duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         req_segments.add(
           type: :storage, duration: event.duration, detail: detail,
-          started_at: event.time
+          source: source, started_at: event.time
         )
       end
 

@@ -24,7 +24,7 @@ module Catpm
                 sample_type: sample_data[:sample_type],
                 recorded_at: sample_data[:recorded_at],
                 duration: sample_data[:duration],
-                context: sample_data[:context]&.to_json
+                context: sample_data[:context]
               }
             end
 

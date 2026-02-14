@@ -63,8 +63,20 @@
     # Determine which segments are parents (have children)
     has_children = Set.new
     children.each { |pi, _kids| has_children << pi }
+
+    # Segments marked collapsed (sampler children — hidden by default)
+    collapsed_set = Set.new
+    starts_collapsed = Set.new
+    segments.each_with_index do |s, i|
+      if s["collapsed"] || s[:collapsed]
+        collapsed_set << i
+        pi = s["parent_index"] || s[:parent_index]
+        starts_collapsed << pi.to_i if pi
+      end
+    end
   %>
 
+  <style>tr[data-collapsed] { display: none; }</style>
   <div style="background:var(--bg-1); border:1px solid var(--border); border-radius:8px; overflow:hidden">
     <table style="margin:0" id="<%= table_id %>">
       <thead>
@@ -90,14 +102,16 @@
           <% prefix = tree_prefix.call(depth, seg_idx, pos) %>
           <% is_parent = has_children.include?(seg_idx) %>
           <% pi = seg["parent_index"] || seg[:parent_index] %>
+          <% is_collapsed = collapsed_set.include?(seg_idx) %>
+          <% parent_starts_collapsed = starts_collapsed.include?(seg_idx) %>
 
-          <tr data-seg="<%= seg_idx %>" data-depth="<%= depth %>"<%= " data-parent=\"#{pi}\"" if pi %><%= " data-has-children" if is_parent %>>
+          <tr data-seg="<%= seg_idx %>" data-depth="<%= depth %>"<%= " data-parent=\"#{pi}\"" if pi %><%= " data-has-children" if is_parent %><%= " data-collapsed" if is_collapsed %>>
             <td><%= type_badge(type) %></td>
             <td class="mono" style="text-align:right"><%= "%.2f" % dur %>ms</td>
             <td>
               <div style="padding-left:<%= depth * 20 %>px">
                 <% if is_parent %>
-                  <span class="seg-toggle" data-seg="<%= seg_idx %>" onclick="toggleSegment(this)" title="Collapse/Expand">&#x25BE;</span>
+                  <span class="seg-toggle" data-seg="<%= seg_idx %>" onclick="toggleSegment(this)" title="Collapse/Expand"><%= parent_starts_collapsed ? "▸" : "▾" %></span>
                 <% end %>
                 <% if depth > 0 %><span class="tree-indent"><%= prefix %></span><% end %>
                 <% if type == "sql" && detail.length > 60 %>

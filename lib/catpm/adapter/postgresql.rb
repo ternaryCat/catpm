@@ -44,7 +44,7 @@ module Catpm
                       duration_sum: existing.duration_sum + bucket_data[:duration_sum],
                       duration_max: [existing.duration_max, bucket_data[:duration_max]].max,
                       duration_min: [existing.duration_min, bucket_data[:duration_min]].min,
-                      metadata_sum: merged_metadata.to_json,
+                      metadata_sum: merged_metadata,
                       p95_digest: merged_digest
                     )
                   else
@@ -59,7 +59,7 @@ module Catpm
                       duration_sum: bucket_data[:duration_sum],
                       duration_max: bucket_data[:duration_max],
                       duration_min: bucket_data[:duration_min],
-                      metadata_sum: bucket_data[:metadata_sum]&.to_json,
+                      metadata_sum: bucket_data[:metadata_sum],
                       p95_digest: bucket_data[:p95_digest]
                     )
                   end
@@ -90,7 +90,7 @@ module Catpm
                     attrs = {
                       occurrences_count: existing.occurrences_count + error_data[:occurrences_count],
                       last_occurred_at: [existing.last_occurred_at, error_data[:last_occurred_at]].max,
-                      contexts: merged_contexts.to_json
+                      contexts: merged_contexts
                     }
                     attrs[:resolved_at] = nil if existing.resolved?
 
@@ -104,7 +104,7 @@ module Catpm
                       occurrences_count: error_data[:occurrences_count],
                       first_occurred_at: error_data[:first_occurred_at],
                       last_occurred_at: error_data[:last_occurred_at],
-                      contexts: error_data[:new_contexts].to_json
+                      contexts: error_data[:new_contexts]
                     )
                   end
                 end

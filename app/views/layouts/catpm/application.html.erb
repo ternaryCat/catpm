@@ -298,15 +298,15 @@
         var d = parseInt(row.getAttribute('data-depth'));
         if (d <= segDepth) break;
         if (isCollapsed) {
-          // Expanding: restore previous subtree state
+          // Expanding: show direct children, skip nested collapsed subtrees
           if (skipBelow >= 0 && d > skipBelow) continue;
           skipBelow = -1;
-          row.style.display = '';
+          row.removeAttribute('data-collapsed');
           var t = row.querySelector('.seg-toggle');
           if (t && t.textContent.trim() === '\u25B8') skipBelow = d;
         } else {
           // Collapsing: hide all descendants, preserve their toggles
-          row.style.display = 'none';
+          row.setAttribute('data-collapsed', '');
         }
       }
     }
