@@ -13,6 +13,16 @@ module Catpm
         Catpm::Subscribers.subscribe!
         Catpm::Lifecycle.register_hooks
         Catpm::AutoInstrument.apply!
+
+        if Catpm.config.instrument_middleware_stack
+          app = Rails.application
+          names = app.middleware.map { |m| m.name }.compact.reject { |n| n.start_with?("Catpm::") }
+          names.reverse_each do |name|
+            app.middleware.insert_before(name, Catpm::MiddlewareProbe, name)
+          rescue ArgumentError, RuntimeError
+            # Middleware not found in stack — skip
+          end
+        end
       end
     end
 

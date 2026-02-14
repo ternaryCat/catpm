@@ -164,6 +164,37 @@ class CollectorTest < ActiveSupport::TestCase
     assert_equal 1, segments[2][:parent_index]
   end
 
+  test "process_action_controller controller span has nonzero duration" do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Controller span wrapping a child custom span — pop_span must set duration before collector reads
+    ctrl_idx = req_segments.push_span(type: :controller, detail: "Api::V1::ExpensesController#create", started_at: start)
+    sleep(0.005)
+    code_idx = req_segments.push_span(type: :custom, detail: "CreateService#call", started_at: Process.clock_gettime(Process::CLOCK_MONOTONIC))
+    sleep(0.005)
+    req_segments.pop_span(code_idx)
+    req_segments.pop_span(ctrl_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "Api::V1::ExpensesController", action: "create",
+      method: "POST", path: "/api/v1/expenses", status: 201, duration: 15.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+    ctrl_seg = segments.find { |s| s[:type] == "controller" }
+    code_seg = segments.find { |s| s[:type] == "custom" }
+
+    assert ctrl_seg[:duration] > 0, "Controller span must have nonzero duration, got #{ctrl_seg[:duration]}"
+    assert ctrl_seg[:duration] >= code_seg[:duration],
+      "Controller (#{ctrl_seg[:duration]}ms) must be >= its child custom span (#{code_seg[:duration]}ms)"
+  end
+
   test "process_action_controller injects middleware segment when gap before controller" do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
@@ -199,6 +230,55 @@ class CollectorTest < ActiveSupport::TestCase
 
     assert_equal "sql", segments[3][:type]
     assert_equal 2, segments[3][:parent_index], "SQL parent should point to controller (shifted)"
+
+    # Synthetic middleware must appear in segment_summary for Time Breakdown
+    summary = ev.context[:segment_summary] || ev.context["segment_summary"]
+    assert_equal 1, summary[:middleware_count]
+    assert summary[:middleware_duration] >= 9.0, "Summary middleware_duration should be >= 9ms, got #{summary[:middleware_duration]}"
+  end
+
+  test "process_action_controller skips synthetic middleware when real middleware segments exist" do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate MiddlewareProbe wrapping a middleware (push_span/pop_span)
+    sleep(0.005)
+    mw_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    mw_idx = req_segments.push_span(type: :middleware, detail: "ActionDispatch::Executor", started_at: mw_start)
+
+    # Controller starts inside the middleware span
+    sleep(0.005)
+    ctrl_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: ctrl_start)
+    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: ctrl_start)
+    req_segments.pop_span(ctrl_idx)
+    req_segments.pop_span(mw_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: "UsersController", action: "index",
+      method: "GET", path: "/users", status: 200, duration: 50.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context["segments"]
+
+    # Should NOT have a synthetic "Middleware Stack" segment
+    synthetic = segments.find { |s| s[:type] == "middleware" && s[:detail] == "Middleware Stack" }
+    assert_nil synthetic, "Synthetic 'Middleware Stack' should be skipped when real middleware segments exist"
+
+    # Should have real middleware segment
+    real_mw = segments.find { |s| s[:type] == "middleware" && s[:detail] == "ActionDispatch::Executor" }
+    assert real_mw, "Real middleware segment should be present"
+
+    # Structure: [0] request, [1] middleware:Executor, [2] controller, [3] sql
+    assert_equal "request", segments[0][:type]
+    assert_equal "middleware", segments[1][:type]
+    assert_equal "controller", segments[2][:type]
+    assert_equal "sql", segments[3][:type]
   end
 
   test "process_action_controller preserves nested parent_index after root injection" do

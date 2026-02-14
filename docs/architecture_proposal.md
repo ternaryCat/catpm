@@ -1,10 +1,16 @@
 # Technical Design: catpm (Core Analytics & Tracking Performance Monitoring)
 
-**Goal:** Create a mountable Rails Engine for performance and error monitoring with minimal resource consumption (RAM/CPU/Disk).
+**Goal:** Create a mountable Rails Engine for performance and error monitoring that maximizes developer insight while respecting resource constraints.
 
 ## 1. Concept and Goals
 
 Most APM solutions (NewRelic, Datadog) are SaaS-oriented, while self-hosted alternatives (Elastic APM) require heavy infrastructure. **catpm** solves the monitoring problem for small to medium projects running on limited resources (e.g., Digital Ocean $4-10 tier).
+
+### Design Priorities (in order):
+
+1.  **Informative First:** The application must provide maximum diagnostic value — source locations on every segment, full request waterfalls, per-middleware breakdowns. When there is a trade-off between capturing more detail and saving resources, detail wins.
+2.  **Memory Economy:** Strict control over in-memory buffer, capped segments per request, automatic downsampling of historical data. All memory-related budgets are bounded and configurable.
+3.  **Everything Configurable:** Every constant, threshold, and limit is exposed as a configuration option with a sensible default. Users can tune the system for their specific workload without forking the code.
 
 ### Key Principles:
 
@@ -352,7 +358,7 @@ module Catpm
         duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0
 
         detail = "#{req.method} #{@address}#{req.path} (#{response.code})"
-        source = duration >= Catpm.config.segment_source_threshold ? Catpm::SegmentSubscribers.send(:extract_source_location) : nil
+        source = extract_catpm_source
 
         segments.add(
           type: :http, duration: duration, detail: detail,
@@ -722,7 +728,7 @@ All segment types share the same data structure and compete for the same 50-segm
 **Resource constraints:**
 
 *   **Cap at 50 segments** per request (`config.max_segments_per_request`). When full, the fastest segment is replaced if the new one is slower. Summary counters are always accurate regardless of cap.
-*   **Source location** (`caller_locations`) is only captured for segments exceeding `config.segment_source_threshold` (default: 5ms). `caller_locations` is expensive; skipping it for fast queries keeps overhead negligible.
+*   **Source location** (`caller_locations`) is captured for every segment by default (`config.segment_source_threshold = 0.0`). This follows the "Informative First" principle — knowing where a query originates is essential for debugging. For high-throughput production environments, the threshold can be raised to reduce overhead.
 *   **SQL truncated** to `config.max_sql_length` (default: 200 chars). SCHEMA and migration queries are filtered out.
 *   **No PII risk** — SQL queries use Rails parameter binds (not inlined values), view details are just file paths.
 
@@ -1710,7 +1716,7 @@ Filtering is applied at the Collector stage — sensitive data never reaches the
 | **`flush_jitter` for SQLite** | Desynchronizes workers, avoids `BUSY`. | Slight delay variance (±5s) in data freshness across workers. |
 | **Segment tracking via Thread.current** | No gem dependency, safe in threaded servers, cleared in middleware ensure. | Per-request, not per-thread in the abstract sense. Relies on middleware lifecycle. |
 | **Capped segments (50, keep slowest)** | Bounded memory per request. Summary counters always accurate. | Fast segments may be evicted; waterfall may be incomplete for segment-heavy requests. |
-| **`caller_locations` only above threshold** | Negligible overhead for typical requests (~95% of queries are fast). | No source info for sub-threshold segments. Threshold must be tuned per app. |
+| **`caller_locations` on every segment** | Maximum diagnostic value — every SQL query, HTTP call, and cache operation shows its origin in the codebase. | ~5-15µs overhead per segment from `caller_locations`. Configurable via `segment_source_threshold` for high-throughput production if needed. |
 | **Direct flusher start (no Puma plugin)** | Works for all common deployments (single, clustered without preload). Simpler code. | Requires manual `on_worker_boot` for Puma clustered + `preload_app!` (power-user config). |
 | **Net::HTTP prepend patch (opt-in)** | Covers all HTTP clients (Faraday, HTTParty, RestClient) with a single patch. Shows external API latency in request waterfall. | Irreversible `Module#prepend` — stays active for process lifetime. Opt-in to avoid surprises. |
 | **Tier 1 subscribers auto-detected** | Action Mailer / Active Storage segments with zero configuration when loaded. | Subscribers registered even if never triggered — negligible overhead (~1 notification check). |
@@ -1735,7 +1741,7 @@ Catpm.configure do |config|
   config.instrument_segments = true          # Track SQL/view/cache segments per request (default: true)
   config.instrument_net_http = false         # Patch Net::HTTP to track outbound HTTP calls (default: false)
   config.max_segments_per_request = 50       # Cap segments per request (keeps slowest when full)
-  config.segment_source_threshold = 5.0      # ms — only capture caller_locations above this
+  config.segment_source_threshold = 0.0      # ms — capture caller_locations for all segments (raise to reduce overhead)
   config.max_sql_length = 200                # Truncate SQL queries to this length
   config.slow_threshold = 500                # milliseconds — applies to all kinds
   config.slow_threshold_per_kind = {         # Override per kind (optional)

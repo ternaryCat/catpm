@@ -21,8 +21,9 @@ Catpm.configure do |config|
   # config.instrument_jobs = false             # Track ActiveJob (default: false)
   # config.instrument_segments = true          # Track SQL/view/cache segments (default: true)
   # config.instrument_net_http = false         # Patch Net::HTTP for outbound tracking (default: false)
+  # config.instrument_middleware_stack = false # Decompose middleware into per-middleware segments (default: false)
   # config.max_segments_per_request = 50       # Cap segments per request (keeps slowest)
-  # config.segment_source_threshold = 5.0      # ms — capture caller_locations above this
+  # config.segment_source_threshold = 0.0      # ms — capture caller_locations above this (raise to reduce overhead)
   # config.max_sql_length = 200                # Truncate SQL queries to this length
   # config.slow_threshold = 500                # ms — threshold for slow samples (all kinds)
   # config.slow_threshold_per_kind = {         # Override per kind

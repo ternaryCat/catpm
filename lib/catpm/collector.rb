@@ -41,11 +41,13 @@ module Catpm
           end
           segments.unshift(root_segment)
 
-          # Inject middleware segment if there's a time gap before the controller action
+          # Inject synthetic middleware segment if there's a time gap before the controller action
+          # (only when real per-middleware segments are not present)
           ctrl_idx = segments.index { |s| s[:type] == "controller" }
           if ctrl_idx
+            has_real_middleware = segments.any? { |s| s[:type] == "middleware" }
             ctrl_offset = (segments[ctrl_idx][:offset] || 0.0).to_f
-            if ctrl_offset > 0.5
+            if ctrl_offset > 0.5 && !has_real_middleware
               middleware_seg = {
                 type: "middleware",
                 detail: "Middleware Stack",
@@ -60,6 +62,9 @@ module Catpm
                 next unless seg.key?(:parent_index)
                 seg[:parent_index] += 1 if seg[:parent_index] >= 1
               end
+              # Add to summary so Time Breakdown shows middleware
+              segment_data[:segment_summary][:middleware_count] = 1
+              segment_data[:segment_summary][:middleware_duration] = ctrl_offset.round(2)
             end
           end
 

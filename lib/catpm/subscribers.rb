@@ -6,6 +6,12 @@ module Catpm
       def subscribe!
         unsubscribe!
 
+        # IMPORTANT: SegmentSubscribers must be subscribed BEFORE the Collector.
+        # ActiveSupport::Notifications calls finish callbacks in subscription order.
+        # ControllerSpanSubscriber.finish (pop_span) must set the controller span
+        # duration BEFORE the Collector reads the segments.
+        SegmentSubscribers.subscribe! if Catpm.config.instrument_segments
+
         if Catpm.config.instrument_http
           @http_subscriber = ActiveSupport::Notifications.subscribe(
             "process_action.action_controller"
@@ -21,8 +27,6 @@ module Catpm
             Collector.process_active_job(event)
           end
         end
-
-        SegmentSubscribers.subscribe! if Catpm.config.instrument_segments
       end
 
       def unsubscribe!

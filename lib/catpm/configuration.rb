@@ -24,6 +24,7 @@ module Catpm
                   :http_basic_auth_password,
                   :access_policy,
                   :additional_filter_parameters,
+                  :instrument_middleware_stack,
                   :auto_instrument_methods,
                   :service_base_classes,
                   :random_sample_rate,
@@ -43,8 +44,9 @@ module Catpm
       @instrument_jobs = false
       @instrument_segments = true
       @instrument_net_http = false
+      @instrument_middleware_stack = false
       @max_segments_per_request = 50
-      @segment_source_threshold = 5.0 # ms — only capture caller_locations above this
+      @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments (set higher to reduce overhead)
       @max_sql_length = 200
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}

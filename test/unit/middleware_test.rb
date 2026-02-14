@@ -63,6 +63,52 @@ class MiddlewareTest < ActiveSupport::TestCase
     assert_equal 0, @buffer.size
   end
 
+  # --- MiddlewareProbe tests ---
+
+  test "middleware probe records span when segments exist" do
+    req_segments = Catpm::RequestSegments.new(max_segments: 50)
+    inner_app = ->(env) { [200, {}, ["OK"]] }
+    probe = Catpm::MiddlewareProbe.new(inner_app, "ActionDispatch::Executor")
+
+    env = { "catpm.segments" => req_segments }
+    status, _headers, _body = probe.call(env)
+
+    assert_equal 200, status
+    segments = req_segments.segments
+    assert_equal 1, segments.size
+    assert_equal "middleware", segments[0][:type]
+    assert_equal "ActionDispatch::Executor", segments[0][:detail]
+    assert segments[0][:duration] >= 0
+  end
+
+  test "middleware probe passes through when no segments in env" do
+    inner_app = ->(env) { [200, {}, ["OK"]] }
+    probe = Catpm::MiddlewareProbe.new(inner_app, "ActionDispatch::Executor")
+
+    status, _headers, _body = probe.call({})
+    assert_equal 200, status
+  end
+
+  test "middleware probe creates nested spans for chained probes" do
+    req_segments = Catpm::RequestSegments.new(max_segments: 50)
+    controller_app = ->(env) { [200, {}, ["OK"]] }
+
+    # Chain: ProbeB -> ProbeA -> controller
+    probe_a = Catpm::MiddlewareProbe.new(controller_app, "Rack::Sendfile")
+    probe_b = Catpm::MiddlewareProbe.new(probe_a, "ActionDispatch::SSL")
+
+    env = { "catpm.segments" => req_segments }
+    probe_b.call(env)
+
+    segments = req_segments.segments
+    assert_equal 2, segments.size
+    # ProbeB's span pushed first (index 0), ProbeA pushed inside (index 1)
+    assert_equal "ActionDispatch::SSL", segments[0][:detail]
+    assert_equal "Rack::Sendfile", segments[1][:detail]
+    # ProbeA is nested inside ProbeB
+    assert_equal 0, segments[1][:parent_index]
+  end
+
   test "extracts target from action_dispatch params" do
     app = ->(_env) { raise RuntimeError, "test" }
     middleware = Catpm::Middleware.new(app)

@@ -60,18 +60,51 @@
     </tr>
   </thead>
   <tbody>
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Instrumentation</td></tr>
     <tr><td>Enabled</td><td class="mono"><%= @config.enabled %></td></tr>
     <tr><td>HTTP Instrumentation</td><td class="mono"><%= @config.instrument_http %></td></tr>
     <tr><td>Job Instrumentation</td><td class="mono"><%= @config.instrument_jobs %></td></tr>
     <tr><td>Segment Instrumentation</td><td class="mono"><%= @config.instrument_segments %></td></tr>
     <tr><td>Net::HTTP Instrumentation</td><td class="mono"><%= @config.instrument_net_http %></td></tr>
-    <tr><td>Slow Threshold</td><td class="mono"><%= @config.slow_threshold %>ms</td></tr>
+    <tr><td>Middleware Stack Instrumentation</td><td class="mono"><%= @config.instrument_middleware_stack %></td></tr>
     <tr><td>Max Segments / Request</td><td class="mono"><%= @config.max_segments_per_request %></td></tr>
+    <tr><td>Segment Source Threshold</td><td class="mono"><%= @config.segment_source_threshold == 0.0 ? "0 (always capture)" : "#{@config.segment_source_threshold}ms" %></td></tr>
     <tr><td>Max SQL Length</td><td class="mono"><%= @config.max_sql_length %> chars</td></tr>
-    <tr><td>Flush Interval</td><td class="mono"><%= @config.flush_interval %>s (&plusmn;<%= @config.flush_jitter %>s)</td></tr>
+    <tr><td>Slow Threshold</td><td class="mono"><%= @config.slow_threshold %>ms</td></tr>
+    <% if @config.slow_threshold_per_kind.any? %>
+    <tr><td>Slow Threshold (per kind)</td><td class="mono"><%= @config.slow_threshold_per_kind.map { |k, v| "#{k}: #{v}ms" }.join(", ") %></td></tr>
+    <% end %>
+    <tr><td>Ignored Targets</td><td class="mono"><%= @config.ignored_targets.any? ? @config.ignored_targets.map(&:to_s).join(", ") : "none" %></td></tr>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Sampling</td></tr>
+    <tr><td>Random Sample Rate</td><td class="mono">1 in <%= @config.random_sample_rate %></td></tr>
+    <tr><td>Max Random Samples / Endpoint</td><td class="mono"><%= @config.max_random_samples_per_endpoint %></td></tr>
+    <tr><td>Max Slow Samples / Endpoint</td><td class="mono"><%= @config.max_slow_samples_per_endpoint %></td></tr>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Buffer & Flush</td></tr>
     <tr><td>Max Buffer Memory</td><td class="mono"><%= number_to_human_size(@config.max_buffer_memory) %></td></tr>
-    <tr><td>Max Error Contexts</td><td class="mono"><%= @config.max_error_contexts %></td></tr>
+    <tr><td>Flush Interval</td><td class="mono"><%= @config.flush_interval %>s (&plusmn;<%= @config.flush_jitter %>s jitter)</td></tr>
+    <tr><td>Persistence Batch Size</td><td class="mono"><%= @config.persistence_batch_size %></td></tr>
+    <tr><td>Shutdown Timeout</td><td class="mono"><%= @config.shutdown_timeout %>s</td></tr>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Retention & Downsampling</td></tr>
     <tr><td>Retention Period</td><td class="mono"><%= (@config.retention_period / 1.day).to_i %> days</td></tr>
+    <tr><td>Cleanup Interval</td><td class="mono"><%= (@config.cleanup_interval / 1.minute).to_i %> min</td></tr>
+    <tr><td>Bucket Sizes</td><td class="mono">recent: <%= (@config.bucket_sizes[:recent] / 1.minute).to_i %>min, medium: <%= (@config.bucket_sizes[:medium] / 1.minute).to_i %>min, old: <%= (@config.bucket_sizes[:old] / 1.hour).to_i %>h</td></tr>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Error Tracking</td></tr>
+    <tr><td>Max Error Contexts</td><td class="mono"><%= @config.max_error_contexts %></td></tr>
+    <tr><td>Backtrace Lines</td><td class="mono"><%= @config.backtrace_lines %></td></tr>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Resilience</td></tr>
+    <tr><td>Circuit Breaker Threshold</td><td class="mono"><%= @config.circuit_breaker_failure_threshold %> failures</td></tr>
+    <tr><td>Circuit Breaker Recovery</td><td class="mono"><%= @config.circuit_breaker_recovery_timeout %>s</td></tr>
+    <% if ActiveRecord::Base.connection.adapter_name.downcase.include?("sqlite") %>
+    <tr><td>SQLite Busy Timeout</td><td class="mono"><%= @config.sqlite_busy_timeout %>ms</td></tr>
+    <% end %>
+
+    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">PII Filtering</td></tr>
+    <tr><td>Additional Filter Parameters</td><td class="mono"><%= @config.additional_filter_parameters.any? ? @config.additional_filter_parameters.map(&:to_s).join(", ") : "none (Rails defaults only)" %></td></tr>
   </tbody>
 </table>
 </div>

@@ -26,7 +26,8 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_nil config.access_policy
     assert_equal [], config.additional_filter_parameters
     assert_equal false, config.instrument_net_http
-    assert_equal 5.0, config.segment_source_threshold
+    assert_equal false, config.instrument_middleware_stack
+    assert_equal 0.0, config.segment_source_threshold
     assert_equal 20, config.random_sample_rate
     assert_equal 5, config.max_random_samples_per_endpoint
     assert_equal 5, config.max_slow_samples_per_endpoint
