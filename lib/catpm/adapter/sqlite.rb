@@ -5,8 +5,6 @@ module Catpm
     module SQLite
       extend Base
 
-      BUSY_TIMEOUT_MS = 5_000
-
       class << self
         def persist_buckets(aggregated_buckets)
           return if aggregated_buckets.empty?
@@ -102,21 +100,9 @@ module Catpm
 
         def with_write_lock(&block)
           ActiveRecord::Base.connection_pool.with_connection do |conn|
-            conn.raw_connection.busy_timeout = BUSY_TIMEOUT_MS
+            conn.raw_connection.busy_timeout = Catpm.config.sqlite_busy_timeout
             ActiveRecord::Base.transaction(&block)
           end
-        end
-
-        def merge_digest(existing_blob, new_blob)
-          existing = existing_blob ? TDigest.deserialize(existing_blob) : TDigest.new
-          incoming = new_blob ? TDigest.deserialize(new_blob) : TDigest.new
-          existing.merge(incoming)
-          existing.empty? ? nil : existing.serialize
-        end
-
-        def merge_contexts(existing_contexts, new_contexts)
-          combined = (existing_contexts + new_contexts)
-          combined.last(Catpm.config.max_error_contexts)
         end
       end
     end

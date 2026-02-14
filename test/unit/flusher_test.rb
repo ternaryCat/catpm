@@ -213,6 +213,71 @@ class FlusherTest < ActiveSupport::TestCase
     assert_equal false, ctx["segments_capped"]
   end
 
+  test "downsample_buckets merges old 1-minute buckets into 5-minute buckets" do
+    # Create five 1-minute buckets with bucket_start > 1 hour ago, all within same 5-min window
+    base_time = 2.hours.ago.change(sec: 0)
+    # Align base_time to a 5-minute boundary
+    base_epoch = base_time.to_i
+    aligned_epoch = base_epoch - (base_epoch % 300)
+    aligned_base = Time.at(aligned_epoch).utc
+
+    5.times do |i|
+      td = Catpm::TDigest.new
+      10.times { |j| td.add((i + 1) * 10.0 + j) }
+
+      Catpm::Bucket.create!(
+        kind: "http", target: "A#index", operation: "GET",
+        bucket_start: aligned_base + (i * 60),
+        count: 10, success_count: 9, failure_count: 1,
+        duration_sum: 100.0, duration_max: 20.0 + i, duration_min: 5.0 - i,
+        metadata_sum: { "db_runtime" => 50.0 }.to_json,
+        p95_digest: td.serialize
+      )
+    end
+
+    assert_equal 5, Catpm::Bucket.count
+
+    @flusher.send(:downsample_buckets)
+
+    # Should merge into 1 or 2 buckets depending on 5-minute alignment
+    remaining = Catpm::Bucket.all.to_a
+    assert remaining.size < 5, "Expected fewer buckets after downsampling, got #{remaining.size}"
+
+    total_count = remaining.sum(&:count)
+    assert_equal 50, total_count
+
+    total_duration = remaining.sum(&:duration_sum)
+    assert_in_delta 500.0, total_duration, 0.01
+
+    # Verify metadata was merged additively
+    total_db_runtime = remaining.sum { |b| b.parsed_metadata_sum["db_runtime"].to_f }
+    assert_in_delta 250.0, total_db_runtime, 0.01
+
+    # Verify TDigest was merged
+    remaining.each do |b|
+      next unless b.p95_digest
+      td = Catpm::TDigest.deserialize(b.p95_digest)
+      assert td.count > 0
+    end
+  end
+
+  test "downsample_buckets skips recent buckets" do
+    # Create buckets within the last hour — should NOT be downsampled
+    recent_time = 30.minutes.ago.change(sec: 0)
+    3.times do |i|
+      Catpm::Bucket.create!(
+        kind: "http", target: "A#index", operation: "GET",
+        bucket_start: recent_time + (i * 60),
+        count: 5, success_count: 5, failure_count: 0,
+        duration_sum: 50.0, duration_max: 15.0, duration_min: 5.0
+      )
+    end
+
+    assert_equal 3, Catpm::Bucket.count
+    @flusher.send(:downsample_buckets)
+    assert_equal 3, Catpm::Bucket.count
+  end
+
   test "build_error_context omits segments when not present" do
     @buffer.push(Catpm::Event.new(
       kind: :http, target: "A#error", operation: "GET",

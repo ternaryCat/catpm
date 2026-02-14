@@ -2,7 +2,7 @@
 
 module Catpm
   class RequestSegments
-    attr_reader :segments, :summary
+    attr_reader :segments, :summary, :request_start
 
     def initialize(max_segments:, request_start: nil)
       @max_segments = max_segments

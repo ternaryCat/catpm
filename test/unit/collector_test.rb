@@ -98,7 +98,9 @@ class CollectorTest < ActiveSupport::TestCase
   end
 
   test "process_action_controller injects root request segment with parent_index" do
-    req_segments = Catpm::RequestSegments.new(max_segments: 50)
+    # Simulate request_start 50ms ago (as if middleware took some time)
+    request_start = Process.clock_gettime(Process::CLOCK_MONOTONIC) - 0.050
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: request_start)
     req_segments.add(type: :sql, duration: 5.0, detail: "SELECT 1")
     Thread.current[:catpm_request_segments] = req_segments
 
@@ -112,11 +114,12 @@ class CollectorTest < ActiveSupport::TestCase
     ev = @buffer.drain.first
     segments = ev.context[:segments] || ev.context["segments"]
 
-    # Root segment injected at index 0
+    # Root segment injected at index 0 with full request duration (>= 50ms)
     root = segments[0]
     assert_equal "request", root[:type] || root["type"]
     assert_equal "GET /users", root[:detail] || root["detail"]
-    assert_in_delta 42.5, (root[:duration] || root["duration"]), 0.01
+    root_duration = root[:duration] || root["duration"]
+    assert root_duration >= 49.0, "Root duration #{root_duration}ms should be >= 49ms (includes middleware time)"
 
     # SQL segment shifted to index 1 with parent_index pointing to root
     sql = segments[1]

@@ -25,16 +25,26 @@ module Catpm
                   :access_policy,
                   :additional_filter_parameters,
                   :auto_instrument_methods,
-                  :service_base_classes
+                  :service_base_classes,
+                  :random_sample_rate,
+                  :max_random_samples_per_endpoint,
+                  :max_slow_samples_per_endpoint,
+                  :cleanup_interval,
+                  :circuit_breaker_failure_threshold,
+                  :circuit_breaker_recovery_timeout,
+                  :sqlite_busy_timeout,
+                  :persistence_batch_size,
+                  :backtrace_lines,
+                  :shutdown_timeout
 
     def initialize
       @enabled = true
       @instrument_http = true
       @instrument_jobs = false
       @instrument_segments = true
-      @instrument_net_http = true
+      @instrument_net_http = false
       @max_segments_per_request = 50
-      @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments
+      @segment_source_threshold = 5.0 # ms — only capture caller_locations above this
       @max_sql_length = 200
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}
@@ -52,6 +62,16 @@ module Catpm
       @additional_filter_parameters = []
       @auto_instrument_methods = []
       @service_base_classes = nil # nil = auto-detect (ApplicationService, BaseService)
+      @random_sample_rate = 20
+      @max_random_samples_per_endpoint = 5
+      @max_slow_samples_per_endpoint = 5
+      @cleanup_interval = 1.hour
+      @circuit_breaker_failure_threshold = 5
+      @circuit_breaker_recovery_timeout = 60 # seconds
+      @sqlite_busy_timeout = 5_000 # milliseconds
+      @persistence_batch_size = 100
+      @backtrace_lines = 10
+      @shutdown_timeout = 5 # seconds
     end
 
     def slow_threshold_for(kind)

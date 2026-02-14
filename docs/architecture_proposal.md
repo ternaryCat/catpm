@@ -1218,38 +1218,38 @@ end note
 
 Multiple processes (Puma workers, multiple servers) flush to the same DB concurrently. The flush strategy differs by adapter.
 
-**PostgreSQL path** — single `upsert_all` with server-side merge:
+**Both adapters** use a **read-modify-write** pattern for fields requiring non-trivial merge logic (`metadata_sum`, `p95_digest`, `contexts`). This ensures consistency and correctness across PostgreSQL and SQLite.
+
+**PostgreSQL path** — advisory-locked read-modify-write per bucket:
 
 ```ruby
-Catpm::Bucket.upsert_all(
-  batch,
-  unique_by: [:kind, :target, :operation, :bucket_start],
-  on_duplicate: Arel.sql(Catpm::Adapter.current.bucket_upsert_sql)
-)
+# For each bucket in the batch:
+ActiveRecord::Base.transaction do
+  conn.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
+
+  existing = Catpm::Bucket.find_by(kind:, target:, operation:, bucket_start:)
+
+  if existing
+    merged_metadata = merge_metadata_sum(existing.metadata_sum, bucket_data[:metadata_sum])
+    merged_digest = merge_digest(existing.p95_digest, bucket_data[:p95_digest])
+    existing.update!(count: existing.count + bucket_data[:count], ..., metadata_sum: merged_metadata, p95_digest: merged_digest)
+  else
+    Catpm::Bucket.create!(bucket_data)
+  end
+end
 ```
 
-Where `bucket_upsert_sql` generates (see full variants in 7.3.2):
+The advisory lock key is derived from the bucket's unique key via `Zlib.crc32`. The lock is transaction-scoped (`pg_advisory_xact_lock`) and auto-releases on commit.
 
-```sql
--- PostgreSQL
-count = catpm_buckets.count + excluded.count,
-success_count = catpm_buckets.success_count + excluded.success_count,
-failure_count = catpm_buckets.failure_count + excluded.failure_count,
-duration_sum = catpm_buckets.duration_sum + excluded.duration_sum,
-duration_max = GREATEST(catpm_buckets.duration_max, excluded.duration_max),
-duration_min = LEAST(catpm_buckets.duration_min, excluded.duration_min),
-metadata_sum = catpm_merge_jsonb_sums(catpm_buckets.metadata_sum, excluded.metadata_sum),
-p95_digest = excluded.p95_digest
-```
-
-**SQLite path** — read-modify-write within a single `BEGIN IMMEDIATE` transaction (see 7.3.4 for full implementation). No `upsert_all` — instead, the adapter reads existing rows, merges `metadata_sum` and `p95_digest` in Ruby, and writes back. The `IMMEDIATE` lock + `busy_timeout` + `flush_jitter` ensures safety across multiple workers (see 7.3.3).
+**SQLite path** — read-modify-write within a single `BEGIN IMMEDIATE` transaction (see 7.3.4 for full implementation). The `IMMEDIATE` lock + `busy_timeout` + `flush_jitter` ensures safety across multiple workers (see 7.3.3).
 
 **Correctness guarantees (both adapters):**
 
 *   **Additive fields** (`count`, `success_count`, `failure_count`, `duration_sum`): `a + b` is commutative and associative — safe regardless of execution order.
 *   **Extremum fields** (`duration_max`, `duration_min`): `GREATEST`/`MAX` and `LEAST`/`MIN` are idempotent and order-independent.
-*   **`metadata_sum`:** JSONB values merged additively per key. PostgreSQL uses a server-side function; SQLite merges in Ruby.
-*   **`p95_digest`:** Always merged in Ruby (TDigest binary merge). PostgreSQL wraps the read-merge-write in an advisory lock; SQLite relies on the `IMMEDIATE` transaction lock.
+*   **`metadata_sum`:** JSONB values merged additively per key in Ruby (shared `merge_metadata_sum` in `Adapter::Base`).
+*   **`p95_digest`:** Merged in Ruby (TDigest binary merge, shared `merge_digest` in `Adapter::Base`). PostgreSQL wraps in advisory lock; SQLite relies on `IMMEDIATE` transaction lock.
+*   **`contexts`:** Error context circular buffers merged in Ruby (shared `merge_contexts` in `Adapter::Base`), trimmed to `max_error_contexts`.
 
 **PostgreSQL `catpm_merge_jsonb_sums` function** (installed via migration):
 
@@ -1267,21 +1267,26 @@ This function is **not created** on SQLite/MySQL — the migration is conditiona
 
 ### 7.2. Error Upsert
 
+Both adapters use read-modify-write for error persistence, following the same pattern as buckets:
+
 ```ruby
-Catpm::Error.upsert_all(
-  error_batch,
-  unique_by: [:fingerprint],
-  on_duplicate: Arel.sql(<<~SQL)
-    occurrences_count = catpm_errors.occurrences_count + excluded.occurrences_count,
-    last_occurred_at = GREATEST(catpm_errors.last_occurred_at, excluded.last_occurred_at),
-    contexts = excluded.contexts
-  SQL
-)
+# PostgreSQL: advisory-locked read-modify-write
+ActiveRecord::Base.transaction do
+  conn.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
+  existing = Catpm::ErrorRecord.find_by(fingerprint: error_data[:fingerprint])
+
+  if existing
+    merged_contexts = merge_contexts(existing.parsed_contexts, error_data[:new_contexts])
+    existing.update!(occurrences_count: existing.occurrences_count + ..., contexts: merged_contexts.to_json)
+  else
+    Catpm::ErrorRecord.create!(error_data)
+  end
+end
 ```
 
 Note: `kind` is stored on the error record but is **not** part of the unique constraint — `fingerprint` already includes `kind` in its hash input (see 3.3.1), so same exception class in HTTP vs. job context produces different fingerprints naturally.
 
-The `contexts` circular buffer is prepared in Ruby before the upsert: the flusher reads existing contexts, appends new ones, trims to `max_error_contexts`, then writes the final array. Same advisory lock strategy as TDigest to prevent lost updates.
+The `contexts` circular buffer is merged in Ruby via the shared `merge_contexts` method in `Adapter::Base`: the adapter reads existing contexts, appends new ones, and trims to `max_error_contexts`. PostgreSQL uses advisory locks; SQLite uses `IMMEDIATE` transaction locks.
 
 ### 7.3. DB Adapter Compatibility
 
@@ -1291,17 +1296,17 @@ SQLite is a **first-class citizen** — the target audience (small apps on $4-10
 
 | Feature | PostgreSQL | MySQL 5.7+ | SQLite 3.45+ (Rails 8) |
 | --- | --- | --- | --- |
-| `upsert_all` | `ON CONFLICT ... DO UPDATE` | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
-| Max/Min on upsert | `GREATEST` / `LEAST` | `GREATEST` / `LEAST` | `MAX` / `MIN` |
+| Persist strategy | Advisory lock + read-modify-write | Ruby pre-merge | `BEGIN IMMEDIATE` + read-modify-write |
 | JSON storage | `jsonb` (binary, indexed) | `JSON` (validated) | `TEXT` + JSON functions (3.38+) |
-| JSON merge on upsert | Custom PG function | Ruby pre-merge | Ruby pre-merge |
+| JSON merge | Ruby (`merge_metadata_sum` in `Adapter::Base`) | Ruby pre-merge | Ruby (`merge_metadata_sum` in `Adapter::Base`) |
+| TDigest merge | Ruby (`merge_digest` in `Adapter::Base`) | Ruby pre-merge | Ruby (`merge_digest` in `Adapter::Base`) |
 | Time bucketing | `EXTRACT(EPOCH FROM ...)` | `UNIX_TIMESTAMP(...)` | `strftime('%s', ...)` |
-| Advisory locks | `pg_advisory_xact_lock` | `GET_LOCK` | N/A (implicit via single-writer) |
+| Concurrency control | `pg_advisory_xact_lock` per row | `GET_LOCK` | `BEGIN IMMEDIATE` + `busy_timeout` |
 | Concurrent writes | Full | Full | Single-writer (see 7.3.3) |
 
-#### 7.3.2. SQL Generation Per Adapter
+#### 7.3.2. Adapter Architecture
 
-The storage layer generates adapter-specific SQL via modules chosen at boot:
+The storage layer selects adapter-specific modules at boot:
 
 ```ruby
 # Adapter selection (lib/catpm/adapter.rb)
@@ -1317,42 +1322,25 @@ module Catpm::Adapter
 end
 ```
 
-**Upsert SQL differences:**
+**Shared merge logic** (`Adapter::Base`, used by both PostgreSQL and SQLite):
 
 ```ruby
-# PostgreSQL adapter
-module Catpm::Adapter::PostgreSQL
-  def self.bucket_upsert_sql
-    <<~SQL
-      count = catpm_buckets.count + excluded.count,
-      success_count = catpm_buckets.success_count + excluded.success_count,
-      failure_count = catpm_buckets.failure_count + excluded.failure_count,
-      duration_sum = catpm_buckets.duration_sum + excluded.duration_sum,
-      duration_max = GREATEST(catpm_buckets.duration_max, excluded.duration_max),
-      duration_min = LEAST(catpm_buckets.duration_min, excluded.duration_min),
-      metadata_sum = catpm_merge_jsonb_sums(catpm_buckets.metadata_sum, excluded.metadata_sum),
-      p95_digest = excluded.p95_digest
-    SQL
+module Catpm::Adapter::Base
+  def merge_metadata_sum(existing, incoming)
+    # Additive merge: each key's value is summed
   end
-end
 
-# SQLite adapter
-module Catpm::Adapter::SQLite
-  def self.bucket_upsert_sql
-    <<~SQL
-      count = catpm_buckets.count + excluded.count,
-      success_count = catpm_buckets.success_count + excluded.success_count,
-      failure_count = catpm_buckets.failure_count + excluded.failure_count,
-      duration_sum = catpm_buckets.duration_sum + excluded.duration_sum,
-      duration_max = MAX(catpm_buckets.duration_max, excluded.duration_max),
-      duration_min = MIN(catpm_buckets.duration_min, excluded.duration_min),
-      metadata_sum = excluded.metadata_sum,
-      p95_digest = excluded.p95_digest
-    SQL
-    # metadata_sum and p95_digest are pre-merged in Ruby (see 7.3.4)
+  def merge_digest(existing_blob, new_blob)
+    # TDigest binary merge: deserialize both, merge, reserialize
+  end
+
+  def merge_contexts(existing_contexts, new_contexts)
+    # Circular buffer: append new, keep last N (max_error_contexts)
   end
 end
 ```
+
+Both adapters use this shared logic for all non-trivial merges. The adapters differ only in concurrency control: PostgreSQL uses `pg_advisory_xact_lock`, SQLite uses `BEGIN IMMEDIATE` + `busy_timeout`.
 
 **Time bucketing differences:**
 
@@ -1383,15 +1371,10 @@ In a multi-worker Puma setup (e.g., `workers: 2, threads: 5`), each worker has i
 ```ruby
 # SQLite adapter flush strategy
 module Catpm::Adapter::SQLite
-  BUSY_TIMEOUT_MS = 5_000  # Wait up to 5s for write lock
-
   def self.with_write_lock(&block)
     ActiveRecord::Base.connection_pool.with_connection do |conn|
-      conn.raw_connection.busy_timeout = BUSY_TIMEOUT_MS
-      conn.transaction(requires_new: true) do
-        conn.execute("BEGIN IMMEDIATE")  # Acquire write lock immediately
-        block.call
-      end
+      conn.raw_connection.busy_timeout = Catpm.config.sqlite_busy_timeout  # default: 5_000ms
+      ActiveRecord::Base.transaction(&block)
     end
   end
 end
@@ -1470,12 +1453,12 @@ module Catpm::Adapter::SQLite
 end
 ```
 
-**Trade-off:** This is slower than PostgreSQL's single `upsert_all` call — it issues N reads + N writes instead of 1 bulk write. But:
-*   The entire operation runs within a single `BEGIN IMMEDIATE` transaction, so it's atomic.
-*   Typical batch size is 50-200 unique bucket keys per flush — well within SQLite's performance envelope.
-*   The `with_write_lock` wrapper ensures no concurrent writer interference.
+**Trade-off:** The read-modify-write pattern issues N reads + N writes instead of 1 bulk write. But:
+*   The entire operation runs within a single transaction, so it's atomic.
+*   Typical batch size is 50-200 unique bucket keys per flush — well within both SQLite's and PostgreSQL's performance envelope.
+*   The concurrency control wrapper (SQLite: `IMMEDIATE` lock; PostgreSQL: advisory lock) ensures no concurrent writer interference.
 
-**PostgreSQL adapter** continues to use the fast-path `upsert_all` with the `catpm_merge_jsonb_sums` function for `metadata_sum`, and advisory locks for `p95_digest`.
+**Both adapters** now use the same read-modify-write pattern with shared merge logic in `Adapter::Base`. The `catpm_merge_jsonb_sums` PostgreSQL function is installed via migration and available for direct SQL queries, but is not used in the adapter's persist path.
 
 #### 7.3.5. SQLite: WAL Mode and Recommended Pragmas
 
@@ -1766,15 +1749,27 @@ Catpm.configure do |config|
     "ActiveJob::CallbacksJob",               # Internal Rails jobs
   ]
 
+  # Sampling
+  config.random_sample_rate = 20                   # 1 in N requests sampled randomly
+  config.max_random_samples_per_endpoint = 5       # Random samples kept per endpoint
+  config.max_slow_samples_per_endpoint = 5         # Slow samples kept per endpoint
+
   # Tuning
   config.retention_period = 7.days           # How long to keep data
   config.max_buffer_memory = 32.megabytes    # Maximum in-memory buffer size
   config.flush_interval = 30                 # seconds (integer)
   config.flush_jitter = 5                    # ±seconds random offset per cycle (reduces SQLite BUSY)
   config.max_error_contexts = 5              # Contexts kept per error fingerprint
+  config.cleanup_interval = 1.hour           # How often to run retention cleanup + downsampling
+  config.persistence_batch_size = 100        # Records per DB batch operation
 
   # Advanced
   config.bucket_sizes = { recent: 1.minute, medium: 5.minutes, old: 1.hour }
+  config.circuit_breaker_failure_threshold = 5     # Failures before circuit opens
+  config.circuit_breaker_recovery_timeout = 60     # seconds before retry
+  config.sqlite_busy_timeout = 5_000               # ms — SQLite lock wait
+  config.backtrace_lines = 10                      # Backtrace lines in error contexts
+  config.shutdown_timeout = 5                      # seconds — graceful shutdown wait
   config.error_handler = ->(e) { Rails.logger.error("[catpm] #{e.message}") }
   config.enabled = Rails.env.production? || Rails.env.staging?
 end

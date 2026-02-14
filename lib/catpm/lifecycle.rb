@@ -25,7 +25,7 @@ module Catpm
       end
 
       def register_shutdown_hooks
-        at_exit { Catpm.flusher&.stop(timeout: 5) }
+        at_exit { Catpm.flusher&.stop }
       end
 
       private

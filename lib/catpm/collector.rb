@@ -21,11 +21,15 @@ module Catpm
           segment_data = req_segments.to_h
           segments = segment_data[:segments]
 
-          # Inject root request segment with known duration
+          # Compute full request duration from middleware start to now
+          # (event.duration only covers the controller action, not middleware)
+          total_request_duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - req_segments.request_start) * 1000.0
+
+          # Inject root request segment with full duration
           root_segment = {
             type: "request",
             detail: "#{payload[:method]} #{payload[:path]}",
-            duration: duration.round(2),
+            duration: total_request_duration.round(2),
             offset: 0.0
           }
           segments.each do |seg|
@@ -88,6 +92,9 @@ module Catpm
           segment_data[:segment_summary].each do |k, v|
             metadata[k] = v
           end
+
+          # Use full request duration (including middleware) for the event
+          duration = total_request_duration
         end
 
         ev = Event.new(

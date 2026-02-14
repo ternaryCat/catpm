@@ -4,7 +4,7 @@ module Catpm
   class CircuitBreaker
     attr_reader :state
 
-    def initialize(failure_threshold: 5, recovery_timeout: 60)
+    def initialize(failure_threshold: Catpm.config.circuit_breaker_failure_threshold, recovery_timeout: Catpm.config.circuit_breaker_recovery_timeout)
       @failure_threshold = failure_threshold
       @recovery_timeout = recovery_timeout
       @failures = 0

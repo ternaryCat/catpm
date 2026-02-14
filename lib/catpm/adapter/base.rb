@@ -13,7 +13,7 @@ module Catpm
 
       def persist_samples(samples, bucket_map)
         ActiveRecord::Base.connection_pool.with_connection do
-          samples.each_slice(100) do |batch|
+          samples.each_slice(Catpm.config.persistence_batch_size) do |batch|
             records = batch.filter_map do |sample_data|
               bucket = bucket_map[sample_data[:bucket_key]]
               next unless bucket
@@ -46,6 +46,18 @@ module Catpm
         end
 
         existing
+      end
+
+      def merge_digest(existing_blob, new_blob)
+        existing = existing_blob ? TDigest.deserialize(existing_blob) : TDigest.new
+        incoming = new_blob ? TDigest.deserialize(new_blob) : TDigest.new
+        existing.merge(incoming)
+        existing.empty? ? nil : existing.serialize
+      end
+
+      def merge_contexts(existing_contexts, new_contexts)
+        combined = (existing_contexts + new_contexts)
+        combined.last(Catpm.config.max_error_contexts)
       end
 
       private

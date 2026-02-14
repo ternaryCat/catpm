@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "zlib"
+
 module Catpm
   module Adapter
     module PostgreSQL
@@ -9,41 +11,60 @@ module Catpm
         def persist_buckets(aggregated_buckets)
           return if aggregated_buckets.empty?
 
-          ActiveRecord::Base.connection_pool.with_connection do
-            # For p95_digest and metadata_sum, we need read-modify-write with advisory lock
-            # because these fields require non-trivial merge logic
-            aggregated_buckets.each_slice(100) do |batch|
-              bucket_records = batch.map do |b|
-                {
-                  kind: b[:kind],
-                  target: b[:target],
-                  operation: b[:operation],
-                  bucket_start: b[:bucket_start],
-                  count: b[:count],
-                  success_count: b[:success_count],
-                  failure_count: b[:failure_count],
-                  duration_sum: b[:duration_sum],
-                  duration_max: b[:duration_max],
-                  duration_min: b[:duration_min],
-                  metadata_sum: b[:metadata_sum]&.to_json,
-                  p95_digest: b[:p95_digest]
-                }
-              end
+          ActiveRecord::Base.connection_pool.with_connection do |conn|
+            aggregated_buckets.each_slice(Catpm.config.persistence_batch_size) do |batch|
+              batch.each do |bucket_data|
+                lock_id = advisory_lock_key(
+                  "bucket:#{bucket_data[:kind]}:#{bucket_data[:target]}:" \
+                  "#{bucket_data[:operation]}:#{bucket_data[:bucket_start]}"
+                )
 
-              Catpm::Bucket.upsert_all(
-                bucket_records,
-                unique_by: %i[kind target operation bucket_start],
-                on_duplicate: Arel.sql(<<~SQL)
-                  count = catpm_buckets.count + excluded.count,
-                  success_count = catpm_buckets.success_count + excluded.success_count,
-                  failure_count = catpm_buckets.failure_count + excluded.failure_count,
-                  duration_sum = catpm_buckets.duration_sum + excluded.duration_sum,
-                  duration_max = GREATEST(catpm_buckets.duration_max, excluded.duration_max),
-                  duration_min = LEAST(catpm_buckets.duration_min, excluded.duration_min),
-                  metadata_sum = excluded.metadata_sum,
-                  p95_digest = excluded.p95_digest
-                SQL
-              )
+                ActiveRecord::Base.transaction do
+                  conn.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
+
+                  existing = Catpm::Bucket.find_by(
+                    kind: bucket_data[:kind],
+                    target: bucket_data[:target],
+                    operation: bucket_data[:operation],
+                    bucket_start: bucket_data[:bucket_start]
+                  )
+
+                  if existing
+                    merged_metadata = merge_metadata_sum(
+                      existing.metadata_sum, bucket_data[:metadata_sum]
+                    )
+                    merged_digest = merge_digest(
+                      existing.p95_digest, bucket_data[:p95_digest]
+                    )
+
+                    existing.update!(
+                      count: existing.count + bucket_data[:count],
+                      success_count: existing.success_count + bucket_data[:success_count],
+                      failure_count: existing.failure_count + bucket_data[:failure_count],
+                      duration_sum: existing.duration_sum + bucket_data[:duration_sum],
+                      duration_max: [existing.duration_max, bucket_data[:duration_max]].max,
+                      duration_min: [existing.duration_min, bucket_data[:duration_min]].min,
+                      metadata_sum: merged_metadata.to_json,
+                      p95_digest: merged_digest
+                    )
+                  else
+                    Catpm::Bucket.create!(
+                      kind: bucket_data[:kind],
+                      target: bucket_data[:target],
+                      operation: bucket_data[:operation],
+                      bucket_start: bucket_data[:bucket_start],
+                      count: bucket_data[:count],
+                      success_count: bucket_data[:success_count],
+                      failure_count: bucket_data[:failure_count],
+                      duration_sum: bucket_data[:duration_sum],
+                      duration_max: bucket_data[:duration_max],
+                      duration_min: bucket_data[:duration_min],
+                      metadata_sum: bucket_data[:metadata_sum]&.to_json,
+                      p95_digest: bucket_data[:p95_digest]
+                    )
+                  end
+                end
+              end
             end
           end
         end
@@ -51,37 +72,55 @@ module Catpm
         def persist_errors(error_records)
           return if error_records.empty?
 
-          ActiveRecord::Base.connection_pool.with_connection do
-            error_records.each_slice(100) do |batch|
-              records = batch.map do |e|
-                {
-                  fingerprint: e[:fingerprint],
-                  kind: e[:kind],
-                  error_class: e[:error_class],
-                  message: e[:message],
-                  occurrences_count: e[:occurrences_count],
-                  first_occurred_at: e[:first_occurred_at],
-                  last_occurred_at: e[:last_occurred_at],
-                  contexts: e[:new_contexts].to_json
-                }
-              end
+          ActiveRecord::Base.connection_pool.with_connection do |conn|
+            error_records.each_slice(Catpm.config.persistence_batch_size) do |batch|
+              batch.each do |error_data|
+                lock_id = advisory_lock_key("error:#{error_data[:fingerprint]}")
 
-              Catpm::ErrorRecord.upsert_all(
-                records,
-                unique_by: :fingerprint,
-                on_duplicate: Arel.sql(<<~SQL)
-                  occurrences_count = catpm_errors.occurrences_count + excluded.occurrences_count,
-                  last_occurred_at = GREATEST(catpm_errors.last_occurred_at, excluded.last_occurred_at),
-                  contexts = excluded.contexts,
-                  resolved_at = NULL
-                SQL
-              )
+                ActiveRecord::Base.transaction do
+                  conn.execute("SELECT pg_advisory_xact_lock(#{lock_id})")
+
+                  existing = Catpm::ErrorRecord.find_by(fingerprint: error_data[:fingerprint])
+
+                  if existing
+                    merged_contexts = merge_contexts(
+                      existing.parsed_contexts, error_data[:new_contexts]
+                    )
+
+                    attrs = {
+                      occurrences_count: existing.occurrences_count + error_data[:occurrences_count],
+                      last_occurred_at: [existing.last_occurred_at, error_data[:last_occurred_at]].max,
+                      contexts: merged_contexts.to_json
+                    }
+                    attrs[:resolved_at] = nil if existing.resolved?
+
+                    existing.update!(attrs)
+                  else
+                    Catpm::ErrorRecord.create!(
+                      fingerprint: error_data[:fingerprint],
+                      kind: error_data[:kind],
+                      error_class: error_data[:error_class],
+                      message: error_data[:message],
+                      occurrences_count: error_data[:occurrences_count],
+                      first_occurred_at: error_data[:first_occurred_at],
+                      last_occurred_at: error_data[:last_occurred_at],
+                      contexts: error_data[:new_contexts].to_json
+                    )
+                  end
+                end
+              end
             end
           end
         end
 
         def modulo_bucket_sql(interval)
           "EXTRACT(EPOCH FROM bucket_start)::integer % #{interval.to_i} = 0"
+        end
+
+        private
+
+        def advisory_lock_key(identifier)
+          Zlib.crc32(identifier.to_s) & 0x7FFFFFFF
         end
       end
     end

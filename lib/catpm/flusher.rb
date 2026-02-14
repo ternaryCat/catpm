@@ -4,11 +4,6 @@ require "concurrent"
 
 module Catpm
   class Flusher
-    CLEANUP_INTERVAL = 1.hour
-    RANDOM_SAMPLE_RATE = 20 # 1 in N
-    MAX_RANDOM_SAMPLES_PER_ENDPOINT = 5
-    MAX_SLOW_SAMPLES_PER_ENDPOINT = 5
-
     attr_reader :running
 
     def initialize(buffer:, interval: nil, jitter: nil)
@@ -32,7 +27,7 @@ module Catpm
       @timer.execute
     end
 
-    def stop(timeout: 5)
+    def stop(timeout: Catpm.config.shutdown_timeout)
       return unless @running
 
       @running = false
@@ -91,11 +86,11 @@ module Catpm
         .joins(:bucket)
         .group("catpm_buckets.kind", "catpm_buckets.target", "catpm_buckets.operation")
         .count
-        .each { |(kind, target, op), cnt| @random_sample_counts[[kind, target, op]] = cnt }
+        .each { |(kind, target, op), cnt| @random_sample_counts[[ kind, target, op ]] = cnt }
 
       events.each do |event|
         # Bucket aggregation
-        key = [event.kind, event.target, event.operation, event.bucket_start]
+        key = [ event.kind, event.target, event.operation, event.bucket_start ]
         bucket = bucket_groups[key] ||= new_bucket_hash(event)
 
         bucket[:count] += 1
@@ -105,8 +100,8 @@ module Catpm
           bucket[:failure_count] += 1
         end
         bucket[:duration_sum] += event.duration
-        bucket[:duration_max] = [bucket[:duration_max], event.duration].max
-        bucket[:duration_min] = [bucket[:duration_min], event.duration].min
+        bucket[:duration_max] = [ bucket[:duration_max], event.duration ].max
+        bucket[:duration_min] = [ bucket[:duration_min], event.duration ].min
 
         # Merge metadata
         event.metadata.each do |k, v|
@@ -150,7 +145,7 @@ module Catpm
           }
 
           error[:occurrences_count] += 1
-          error[:last_occurred_at] = [error[:last_occurred_at], event.started_at].max
+          error[:last_occurred_at] = [ error[:last_occurred_at], event.started_at ].max
 
           if error[:new_contexts].size < Catpm.config.max_error_contexts
             error[:new_contexts] << build_error_context(event)
@@ -165,7 +160,7 @@ module Catpm
         b
       end
 
-      [buckets, samples, error_groups.values]
+      [ buckets, samples, error_groups.values ]
     end
 
     def new_bucket_hash(event)
@@ -192,14 +187,14 @@ module Catpm
       return "slow" if event.duration >= threshold
 
       # Always sample if endpoint has few random samples (filling phase)
-      endpoint_key = [event.kind, event.target, event.operation]
+      endpoint_key = [ event.kind, event.target, event.operation ]
       existing_random = @random_sample_counts[endpoint_key] || 0
-      if existing_random < MAX_RANDOM_SAMPLES_PER_ENDPOINT
+      if existing_random < Catpm.config.max_random_samples_per_endpoint
         @random_sample_counts[endpoint_key] = existing_random + 1
         return "random"
       end
 
-      return "random" if rand(RANDOM_SAMPLE_RATE) == 0
+      return "random" if rand(Catpm.config.random_sample_rate) == 0
 
       nil
     end
@@ -214,12 +209,12 @@ module Catpm
         case sample[:sample_type]
         when "random"
           existing = endpoint_samples.where(sample_type: "random")
-          if existing.count >= MAX_RANDOM_SAMPLES_PER_ENDPOINT
+          if existing.count >= Catpm.config.max_random_samples_per_endpoint
             existing.order(recorded_at: :asc).first.destroy
           end
         when "slow"
           existing = endpoint_samples.where(sample_type: "slow")
-          if existing.count >= MAX_SLOW_SAMPLES_PER_ENDPOINT
+          if existing.count >= Catpm.config.max_slow_samples_per_endpoint
             weakest = existing.order(duration: :asc).first
             if sample[:duration] > weakest.duration
               weakest.destroy
@@ -238,7 +233,7 @@ module Catpm
         occurred_at: event.started_at.iso8601,
         kind: event.kind,
         operation: event.context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
-        backtrace: (event.backtrace || []).first(10),
+        backtrace: (event.backtrace || []).first(Catpm.config.backtrace_lines),
         duration: event.duration,
         status: event.status
       }
@@ -260,7 +255,7 @@ module Catpm
     def build_bucket_map(aggregated_buckets)
       map = {}
       aggregated_buckets.each do |b|
-        key = [b[:kind], b[:target], b[:operation], b[:bucket_start]]
+        key = [ b[:kind], b[:target], b[:operation], b[:bucket_start] ]
         map[key] = Catpm::Bucket.find_by(
           kind: b[:kind], target: b[:target],
           operation: b[:operation], bucket_start: b[:bucket_start]
@@ -270,17 +265,101 @@ module Catpm
     end
 
     def maybe_cleanup
-      return if Time.now - @last_cleanup_at < CLEANUP_INTERVAL
+      return if Time.now - @last_cleanup_at < Catpm.config.cleanup_interval
 
       @last_cleanup_at = Time.now
+      downsample_buckets
       cleanup_expired_data
+    end
+
+    def downsample_buckets
+      bucket_sizes = Catpm.config.bucket_sizes
+      adapter = Catpm::Adapter.current
+
+      # Phase 1: Merge 1-minute buckets older than 1 hour into 5-minute buckets
+      downsample_tier(
+        target_interval: bucket_sizes[:medium],
+        age_threshold: 1.hour,
+        adapter: adapter
+      )
+
+      # Phase 2: Merge 5-minute buckets older than 24 hours into 1-hour buckets
+      downsample_tier(
+        target_interval: bucket_sizes[:old],
+        age_threshold: 24.hours,
+        adapter: adapter
+      )
+    end
+
+    def downsample_tier(target_interval:, age_threshold:, adapter:)
+      cutoff = age_threshold.ago
+      target_seconds = target_interval.to_i
+
+      # Find all buckets older than cutoff
+      source_buckets = Catpm::Bucket.where(bucket_start: ...cutoff).to_a
+      return if source_buckets.empty?
+
+      # Group by (kind, target, operation) + target-aligned bucket_start
+      groups = source_buckets.group_by do |bucket|
+        epoch = bucket.bucket_start.to_i
+        aligned_epoch = epoch - (epoch % target_seconds)
+        aligned_start = Time.at(aligned_epoch).utc
+
+        [bucket.kind, bucket.target, bucket.operation, aligned_start]
+      end
+
+      groups.each do |(kind, target, operation, aligned_start), buckets|
+        # Skip if only one bucket already at the target alignment
+        next if buckets.size == 1 && buckets.first.bucket_start.to_i % target_seconds == 0
+
+        merged = {
+          kind: kind,
+          target: target,
+          operation: operation,
+          bucket_start: aligned_start,
+          count: buckets.sum(&:count),
+          success_count: buckets.sum(&:success_count),
+          failure_count: buckets.sum(&:failure_count),
+          duration_sum: buckets.sum(&:duration_sum),
+          duration_max: buckets.map(&:duration_max).max,
+          duration_min: buckets.map(&:duration_min).min,
+          metadata_sum: merge_bucket_metadata(buckets, adapter),
+          p95_digest: merge_bucket_digests(buckets)
+        }
+
+        source_ids = buckets.map(&:id)
+
+        # Delete source buckets first (to avoid unique constraint conflict
+        # if one source bucket has the same bucket_start as the target)
+        Catpm::Sample.where(bucket_id: source_ids).delete_all
+        Catpm::Bucket.where(id: source_ids).delete_all
+
+        # Create the merged bucket
+        adapter.persist_buckets([merged])
+      end
+    end
+
+    def merge_bucket_metadata(buckets, adapter)
+      buckets.reduce({}) do |acc, b|
+        adapter.merge_metadata_sum(acc, b.metadata_sum)
+      end
+    end
+
+    def merge_bucket_digests(buckets)
+      combined = TDigest.new
+      buckets.each do |b|
+        next unless b.p95_digest
+        digest = TDigest.deserialize(b.p95_digest)
+        combined.merge(digest)
+      end
+      combined.empty? ? nil : combined.serialize
     end
 
     def cleanup_expired_data
       cutoff = Catpm.config.retention_period.ago
       batch_size = 1_000
 
-      [Catpm::Bucket, Catpm::Sample].each do |model|
+      [ Catpm::Bucket, Catpm::Sample ].each do |model|
         time_column = model == Catpm::Sample ? :recorded_at : :bucket_start
         loop do
           deleted = model.where(time_column => ...cutoff).limit(batch_size).delete_all

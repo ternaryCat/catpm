@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_06_01_000003) do
+ActiveRecord::Schema[8.1].define(version: 2025_06_01_000004) do
   create_table "catpm_buckets", force: :cascade do |t|
     t.datetime "bucket_start", null: false
     t.integer "count", default: 0, null: false
