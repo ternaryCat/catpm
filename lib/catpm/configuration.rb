@@ -55,12 +55,12 @@ module Catpm
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}
       @ignored_targets = []
-      @retention_period = 7.days
+      @retention_period = nil # nil = keep forever (data is downsampled, not deleted)
       @max_buffer_memory = 32.megabytes
       @flush_interval = 30 # seconds
       @flush_jitter = 5 # ±seconds
       @max_error_contexts = 5
-      @bucket_sizes = { recent: 1.minute, medium: 5.minutes, old: 1.hour }
+      @bucket_sizes = { recent: 1.minute, medium: 5.minutes, hourly: 1.hour, daily: 1.day, weekly: 1.week }
       @error_handler = ->(e) { Rails.logger.error("[catpm] #{e.message}") }
       @http_basic_auth_user = nil
       @http_basic_auth_password = nil

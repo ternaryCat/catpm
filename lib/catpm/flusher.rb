@@ -307,7 +307,7 @@ module Catpm
 
       @last_cleanup_at = Time.now
       downsample_buckets
-      cleanup_expired_data
+      cleanup_expired_data if Catpm.config.retention_period
     end
 
     def downsample_buckets
@@ -323,14 +323,30 @@ module Catpm
 
       # Phase 2: Merge 5-minute buckets older than 24 hours into 1-hour buckets
       downsample_tier(
-        target_interval: bucket_sizes[:old],
+        target_interval: bucket_sizes[:hourly],
         age_threshold: 24.hours,
         adapter: adapter
       )
 
-      # Event buckets: same two-phase downsampling (simple SUM counts)
+      # Phase 3: Merge 1-hour buckets older than 1 week into 1-day buckets
+      downsample_tier(
+        target_interval: bucket_sizes[:daily],
+        age_threshold: 1.week,
+        adapter: adapter
+      )
+
+      # Phase 4: Merge 1-day buckets older than 3 months into 1-week buckets
+      downsample_tier(
+        target_interval: bucket_sizes[:weekly],
+        age_threshold: 90.days,
+        adapter: adapter
+      )
+
+      # Event buckets: same downsampling tiers
       downsample_event_tier(target_interval: bucket_sizes[:medium], age_threshold: 1.hour, adapter: adapter)
-      downsample_event_tier(target_interval: bucket_sizes[:old], age_threshold: 24.hours, adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:hourly], age_threshold: 24.hours, adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:daily], age_threshold: 1.week, adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:weekly], age_threshold: 90.days, adapter: adapter)
     end
 
     def downsample_tier(target_interval:, age_threshold:, adapter:)

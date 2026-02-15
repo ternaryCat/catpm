@@ -44,21 +44,23 @@ Catpm.configure do |config|
 
   # === Tuning ===
   #
-  # config.retention_period = 7.days                 # How long to keep data
+  # config.retention_period = nil                    # nil = keep forever (default); set to e.g. 1.year to delete older data
   # config.max_buffer_memory = 32.megabytes          # Maximum in-memory buffer size
   # config.flush_interval = 30                       # seconds
   # config.flush_jitter = 5                          # +/- seconds random offset per cycle
   # config.max_error_contexts = 5                    # Contexts kept per error fingerprint
-  # config.cleanup_interval = 1.hour                 # How often to run retention cleanup
+  # config.cleanup_interval = 1.hour                 # How often to run downsampling
   # config.persistence_batch_size = 100              # Records per DB batch operation
 
   # === Downsampling ===
-  # Bucket sizes for automatic downsampling:
-  # - Recent data (< 1h): 1-minute buckets
-  # - Medium data (1h-24h): 5-minute buckets
-  # - Old data (> 24h): 1-hour buckets
+  # Data is kept forever with progressively coarser resolution:
+  # - Last hour: 1-minute buckets
+  # - 1h–24h: 5-minute buckets
+  # - 1d–1w: 1-hour buckets
+  # - 1w–3mo: 1-day buckets
+  # - Older than 3 months: 1-week buckets
   #
-  # config.bucket_sizes = { recent: 1.minute, medium: 5.minutes, old: 1.hour }
+  # config.bucket_sizes = { recent: 1.minute, medium: 5.minutes, hourly: 1.hour, daily: 1.day, weekly: 1.week }
 
   # === Advanced ===
   #

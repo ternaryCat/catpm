@@ -16,7 +16,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 500, config.slow_threshold
     assert_equal({}, config.slow_threshold_per_kind)
     assert_equal [], config.ignored_targets
-    assert_equal 7.days, config.retention_period
+    assert_nil config.retention_period
     assert_equal 32.megabytes, config.max_buffer_memory
     assert_equal 30, config.flush_interval
     assert_equal 5, config.flush_jitter
