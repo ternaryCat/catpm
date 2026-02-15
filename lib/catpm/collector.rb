@@ -8,7 +8,7 @@ module Catpm
 
         payload = event.payload
         target = "#{payload[:controller]}##{payload[:action]}"
-        return if target.start_with?("Catpm::")
+        return if target.start_with?('Catpm::')
         return if Catpm.config.ignored?(target)
 
         duration = event.duration # milliseconds
@@ -27,7 +27,7 @@ module Catpm
 
           # Inject root request segment with full duration
           root_segment = {
-            type: "request",
+            type: 'request',
             detail: "#{payload[:method]} #{payload[:path]}",
             duration: total_request_duration.round(2),
             offset: 0.0
@@ -43,14 +43,14 @@ module Catpm
 
           # Inject synthetic middleware segment if there's a time gap before the controller action
           # (only when real per-middleware segments are not present)
-          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          ctrl_idx = segments.index { |s| s[:type] == 'controller' }
           if ctrl_idx
-            has_real_middleware = segments.any? { |s| s[:type] == "middleware" }
+            has_real_middleware = segments.any? { |s| s[:type] == 'middleware' }
             ctrl_offset = (segments[ctrl_idx][:offset] || 0.0).to_f
             if ctrl_offset > 0.5 && !has_real_middleware
               middleware_seg = {
-                type: "middleware",
-                detail: "Middleware Stack",
+                type: 'middleware',
+                detail: 'Middleware Stack',
                 duration: ctrl_offset.round(2),
                 offset: 0.0,
                 parent_index: 0
@@ -69,7 +69,7 @@ module Catpm
           end
 
           # Fill untracked controller time with sampler data or synthetic segment
-          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          ctrl_idx = segments.index { |s| s[:type] == 'controller' }
           if ctrl_idx
             ctrl_seg = segments[ctrl_idx]
             ctrl_dur = (ctrl_seg[:duration] || 0).to_f
@@ -100,7 +100,7 @@ module Catpm
         ev = Event.new(
           kind: :http,
           target: target,
-          operation: payload[:method] || "GET",
+          operation: payload[:method] || 'GET',
           duration: duration,
           started_at: Time.current,
           status: status,
@@ -167,7 +167,7 @@ module Catpm
 
           # Inject root request segment
           root_segment = {
-            type: "request",
+            type: 'request',
             detail: "#{operation.presence || kind} #{target}",
             duration: duration.round(2),
             offset: 0.0
@@ -182,7 +182,7 @@ module Catpm
           segments.unshift(root_segment)
 
           # Fill untracked controller time with sampler data or synthetic segment
-          ctrl_idx = segments.index { |s| s[:type] == "controller" }
+          ctrl_idx = segments.index { |s| s[:type] == 'controller' }
           if ctrl_idx
             ctrl_seg = segments[ctrl_idx]
             ctrl_dur = (ctrl_seg[:duration] || 0).to_f
@@ -231,7 +231,7 @@ module Catpm
         ev = Event.new(
           kind: :custom,
           target: name,
-          operation: "",
+          operation: '',
           duration: duration,
           started_at: Time.current,
           context: context,
@@ -271,8 +271,8 @@ module Catpm
           remaining = gap - sampler_dur
           if remaining > 1.0
             segments << {
-              type: "other",
-              detail: "Untracked",
+              type: 'other',
+              detail: 'Untracked',
               duration: remaining.round(2),
               offset: (ctrl_seg[:offset] || 0.0),
               parent_index: ctrl_idx
@@ -280,8 +280,8 @@ module Catpm
           end
         else
           segments << {
-            type: "other",
-            detail: "Untracked",
+            type: 'other',
+            detail: 'Untracked',
             duration: gap.round(2),
             offset: (ctrl_seg[:offset] || 0.0),
             parent_index: ctrl_idx
@@ -293,7 +293,7 @@ module Catpm
         {
           method: payload[:method],
           path: payload[:path],
-          params: (payload[:params] || {}).except("controller", "action"),
+          params: (payload[:params] || {}).except('controller', 'action'),
           status: payload[:status]
         }
       end

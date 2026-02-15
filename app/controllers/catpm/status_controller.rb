@@ -27,7 +27,7 @@ module Catpm
         total = bs.sum(&:count)
         total > 0 ? bs.sum(&:duration_sum) / total : 0.0
       end
-      @sparkline_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime("%H:%M") }
+      @sparkline_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
 
       recent_count = recent_buckets.sum(&:count)
       recent_failures = recent_buckets.sum(&:failure_count)
@@ -61,10 +61,10 @@ module Catpm
       endpoints = endpoints.select { |e| e[:kind] == @kind_filter } if @kind_filter
 
       # Server-side sort
-      @sort = %w[target total_count avg_duration max_duration total_failures last_seen].include?(params[:sort]) ? params[:sort] : "last_seen"
-      @dir = params[:dir] == "asc" ? "asc" : "desc"
-      endpoints = endpoints.sort_by { |e| e[@sort.to_sym] || "" }
-      endpoints = endpoints.reverse if @dir == "desc"
+      @sort = %w[target total_count avg_duration max_duration total_failures last_seen].include?(params[:sort]) ? params[:sort] : 'last_seen'
+      @dir = params[:dir] == 'asc' ? 'asc' : 'desc'
+      endpoints = endpoints.sort_by { |e| e[@sort.to_sym] || '' }
+      endpoints = endpoints.reverse if @dir == 'desc'
 
       @total_endpoint_count = endpoints.size
 

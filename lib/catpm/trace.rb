@@ -69,7 +69,7 @@ module Catpm
   #     process_update(...)
   #   end
   #
-  def self.track_request(kind: :http, target:, operation: "", context: {}, metadata: {})
+  def self.track_request(kind: :http, target:, operation: '', context: {}, metadata: {})
     return yield unless enabled?
 
     req_segments = Thread.current[:catpm_request_segments]
@@ -162,5 +162,4 @@ module Catpm
     end
     nil
   end
-
 end

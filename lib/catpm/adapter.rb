@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "catpm/adapter/base"
-require "catpm/adapter/sqlite"
-require "catpm/adapter/postgresql"
+require 'catpm/adapter/base'
+require 'catpm/adapter/sqlite'
+require 'catpm/adapter/postgresql'
 
 module Catpm
   module Adapter

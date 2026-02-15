@@ -91,7 +91,7 @@ module Catpm
         case pattern
         when Regexp then pattern.match?(target)
         when String
-          if pattern.include?("*")
+          if pattern.include?('*')
             File.fnmatch(pattern, target)
           else
             pattern == target

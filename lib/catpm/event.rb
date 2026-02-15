@@ -10,12 +10,12 @@ module Catpm
                   :metadata, :error_class, :error_message, :backtrace,
                   :sample_type, :context, :status
 
-    def initialize(kind:, target:, operation: "", duration: 0.0, started_at: nil,
+    def initialize(kind:, target:, operation: '', duration: 0.0, started_at: nil,
                    metadata: {}, error_class: nil, error_message: nil, backtrace: nil,
                    sample_type: nil, context: {}, status: nil)
       @kind = kind.to_s
       @target = target.to_s
-      @operation = (operation || "").to_s
+      @operation = (operation || '').to_s
       @duration = duration.to_f
       @started_at = started_at || Time.current
       @metadata = metadata || {}

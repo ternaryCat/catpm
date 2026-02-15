@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class LifecycleTest < ActiveSupport::TestCase
   setup do
@@ -15,7 +15,7 @@ class LifecycleTest < ActiveSupport::TestCase
     Catpm.flusher = nil
   end
 
-  test "register_hooks initializes buffer and flusher" do
+  test 'register_hooks initializes buffer and flusher' do
     assert_nil Catpm.buffer
     assert_nil Catpm.flusher
 
@@ -27,13 +27,13 @@ class LifecycleTest < ActiveSupport::TestCase
     assert_instance_of Catpm::Flusher, Catpm.flusher
   end
 
-  test "register_hooks starts flusher (fallback mode)" do
+  test 'register_hooks starts flusher (fallback mode)' do
     Catpm::Lifecycle.register_hooks
 
     assert Catpm.flusher.running
   end
 
-  test "register_hooks is no-op when disabled" do
+  test 'register_hooks is no-op when disabled' do
     Catpm.configure { |c| c.enabled = false }
 
     Catpm::Lifecycle.register_hooks
@@ -42,7 +42,7 @@ class LifecycleTest < ActiveSupport::TestCase
     assert_nil Catpm.flusher
   end
 
-  test "register_hooks does not overwrite existing buffer" do
+  test 'register_hooks does not overwrite existing buffer' do
     existing_buffer = Catpm::Buffer.new(max_bytes: 1.megabyte)
     Catpm.buffer = existing_buffer
 

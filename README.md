@@ -24,7 +24,7 @@ Catpm is designed for small-to-medium Rails applications where a full APM (Datad
 Add to your Gemfile:
 
 ```ruby
-gem "catpm"
+gem 'catpm'
 ```
 
 Run the install generator:
@@ -58,15 +58,15 @@ All ActiveJob classes will be tracked with duration and queue wait time.
 Wrap any code block to track it as a standalone operation:
 
 ```ruby
-Catpm.trace("Stripe::Charge") do
-  Stripe::Charge.create(amount: 1000, currency: "usd")
+Catpm.trace('Stripe::Charge') do
+  Stripe::Charge.create(amount: 1000, currency: 'usd')
 end
 ```
 
 Inside an existing request, `Catpm.span` adds a segment to the waterfall instead of creating a separate trace:
 
 ```ruby
-Catpm.span("geocode", type: :external) do
+Catpm.span('geocode', type: :external) do
   Geocoder.search(address)
 end
 ```
@@ -74,7 +74,7 @@ end
 For cases where a block doesn't work, use the manual API:
 
 ```ruby
-span = Catpm.start_trace("long_operation")
+span = Catpm.start_trace('long_operation')
 # ... do work ...
 span.finish
 ```
@@ -84,7 +84,7 @@ span.finish
 For webhooks, custom Rack endpoints, or anything outside ActionController:
 
 ```ruby
-Catpm.track_request(kind: :http, target: "WebhookController#stripe") do
+Catpm.track_request(kind: :http, target: 'WebhookController#stripe') do
   process_webhook(payload)
 end
 ```
@@ -115,7 +115,7 @@ Service objects following the `ApplicationService.call` pattern are instrumented
 
 ```ruby
 Catpm.configure do |config|
-  config.service_base_classes = ["MyServiceBase"]
+  config.service_base_classes = ['MyServiceBase']
 end
 ```
 
@@ -123,7 +123,7 @@ You can also instrument specific methods explicitly:
 
 ```ruby
 Catpm.configure do |config|
-  config.auto_instrument_methods = ["Worker#process", "Gateway.charge"]
+  config.auto_instrument_methods = ['Worker#process', 'Gateway.charge']
 end
 ```
 
@@ -132,8 +132,8 @@ end
 Track business-level events that aren't tied to performance:
 
 ```ruby
-Catpm.event("user.signed_up", plan: "pro", source: "landing_page")
-Catpm.event("order.completed", total: 49.99)
+Catpm.event('user.signed_up', plan: 'pro', source: 'landing_page')
+Catpm.event('order.completed', total: 49.99)
 ```
 
 Events are aggregated into time buckets with sample payloads preserved. Enable in the initializer:
@@ -154,8 +154,8 @@ Catpm.configure do |config|
   config.enabled = Rails.env.production? || Rails.env.staging?
 
   # Protect the dashboard
-  config.http_basic_auth_user = ENV["CATPM_USER"]
-  config.http_basic_auth_password = ENV["CATPM_PASSWORD"]
+  config.http_basic_auth_user = ENV['CATPM_USER']
+  config.http_basic_auth_password = ENV['CATPM_PASSWORD']
   # Or use a custom policy:
   # config.access_policy = ->(request) { request.env["warden"].user&.admin? }
 
@@ -174,8 +174,8 @@ Catpm.configure do |config|
 
   # Ignore noisy endpoints
   config.ignored_targets = [
-    "HealthcheckController#index",
-    "/assets/*",
+    'HealthcheckController#index',
+    '/assets/*',
   ]
 
   # Tuning

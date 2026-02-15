@@ -9,20 +9,20 @@ module Catpm
     def call(env)
       return @app.call(env) unless Catpm.enabled?
 
-      env["catpm.request_start"] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      env['catpm.request_start'] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       if Catpm.config.instrument_segments
         req_segments = RequestSegments.new(
           max_segments: Catpm.config.max_segments_per_request,
-          request_start: env["catpm.request_start"],
+          request_start: env['catpm.request_start'],
           stack_sample: Catpm.config.instrument_stack_sampler
         )
-        env["catpm.segments"] = req_segments
+        env['catpm.segments'] = req_segments
         Thread.current[:catpm_request_segments] = req_segments
       end
 
       @app.call(env)
-    rescue Exception => e # rubocop:disable Lint/RescueException
+    rescue Exception => e
       record_exception(env, e)
       raise
     ensure
@@ -40,7 +40,7 @@ module Catpm
       ev = Event.new(
         kind: :http,
         target: target_from_env(env),
-        operation: env["REQUEST_METHOD"] || "GET",
+        operation: env['REQUEST_METHOD'] || 'GET',
         duration: elapsed_ms(env),
         started_at: Time.current,
         status: 500,
@@ -48,8 +48,8 @@ module Catpm
         error_message: exception.message,
         backtrace: exception.backtrace,
         context: {
-          method: env["REQUEST_METHOD"],
-          path: env["PATH_INFO"]
+          method: env['REQUEST_METHOD'],
+          path: env['PATH_INFO']
         }
       )
 
@@ -57,16 +57,16 @@ module Catpm
     end
 
     def target_from_env(env)
-      if env["action_dispatch.request.path_parameters"]
-        params = env["action_dispatch.request.path_parameters"]
+      if env['action_dispatch.request.path_parameters']
+        params = env['action_dispatch.request.path_parameters']
         "#{params[:controller]&.camelize}Controller##{params[:action]}"
       else
-        env["PATH_INFO"] || "unknown"
+        env['PATH_INFO'] || 'unknown'
       end
     end
 
     def elapsed_ms(env)
-      start = env["catpm.request_start"]
+      start = env['catpm.request_start']
       return 0.0 unless start
 
       (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000.0

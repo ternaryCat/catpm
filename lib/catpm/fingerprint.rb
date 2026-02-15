@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require 'digest'
 
 module Catpm
   module Fingerprint
@@ -24,7 +24,7 @@ module Catpm
       # No app frames = error in a gem/library. Group by crash location
       # so the same bug is always one issue regardless of the caller.
       backtrace
-        .reject { |line| line.include?("<internal:") }
+        .reject { |line| line.include?('<internal:') }
         .first(3)
         .map { |line| strip_line_number(line) }
         .join("\n")
@@ -32,21 +32,21 @@ module Catpm
 
     # Checks if a backtrace line belongs to the host application (not a gem or stdlib)
     def self.app_frame?(line)
-      return false if line.include?("/gems/")
-      return false if line.include?("/ruby/")
-      return false if line.include?("<internal:")
-      return false if line.include?("/catpm/")
+      return false if line.include?('/gems/')
+      return false if line.include?('/ruby/')
+      return false if line.include?('<internal:')
+      return false if line.include?('/catpm/')
 
       if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
-        return line.start_with?(Rails.root.to_s) if line.start_with?("/")
+        return line.start_with?(Rails.root.to_s) if line.start_with?('/')
       end
 
-      line.start_with?("app/") || line.include?("/app/")
+      line.start_with?('app/') || line.include?('/app/')
     end
 
     # Strips line numbers: "app/models/user.rb:42:in `validate'" → "app/models/user.rb:in `validate'"
     def self.strip_line_number(line)
-      line.sub(/:\d+:in /, ":in ")
+      line.sub(/:\d+:in /, ':in ')
     end
   end
 end

@@ -5,25 +5,25 @@ module Catpm
     def show
       @kind = params[:kind]
       @target = params[:target]
-      @operation = params[:operation].presence || ""
+      @operation = params[:operation].presence || ''
 
       # Time range filter
-      @range, period, _bucket_seconds = helpers.parse_range(params[:range], extra_valid: ["all"])
+      @range, period, _bucket_seconds = helpers.parse_range(params[:range], extra_valid: ['all'])
 
       scope = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
 
-      if @range != "all"
-        scope = scope.where("bucket_start >= ?", period.ago)
+      if @range != 'all'
+        scope = scope.where('bucket_start >= ?', period.ago)
       end
 
       @aggregate = scope.pick(
-        "SUM(count)",
-        "SUM(duration_sum)",
-        "MAX(duration_max)",
-        "MIN(duration_min)",
-        "SUM(failure_count)",
-        "SUM(success_count)"
+        'SUM(count)',
+        'SUM(duration_sum)',
+        'MAX(duration_max)',
+        'MIN(duration_min)',
+        'SUM(failure_count)',
+        'SUM(success_count)'
       )
 
       @count, @duration_sum, @duration_max, @duration_min, @failure_count, @success_count =
@@ -49,13 +49,13 @@ module Catpm
         .joins(:bucket)
         .where(catpm_buckets: { kind: @kind, target: @target, operation: @operation })
 
-      if @range != "all"
-        endpoint_samples = endpoint_samples.where("catpm_samples.recorded_at >= ?", period.ago)
+      if @range != 'all'
+        endpoint_samples = endpoint_samples.where('catpm_samples.recorded_at >= ?', period.ago)
       end
 
-      @slow_samples = endpoint_samples.where(sample_type: "slow").order(duration: :desc).limit(10)
-      @samples = endpoint_samples.where(sample_type: "random").order(recorded_at: :desc).limit(10)
-      @error_samples = endpoint_samples.where(sample_type: "error").order(recorded_at: :desc).limit(10)
+      @slow_samples = endpoint_samples.where(sample_type: 'slow').order(duration: :desc).limit(10)
+      @samples = endpoint_samples.where(sample_type: 'random').order(recorded_at: :desc).limit(10)
+      @error_samples = endpoint_samples.where(sample_type: 'error').order(recorded_at: :desc).limit(10)
 
       @active_error_count = Catpm::ErrorRecord.unresolved.count
     end

@@ -2,7 +2,7 @@
 
 module Catpm
   class ErrorRecord < ApplicationRecord
-    self.table_name = "catpm_errors"
+    self.table_name = 'catpm_errors'
 
     validates :fingerprint, :kind, :error_class, :first_occurred_at, :last_occurred_at, presence: true
     validates :fingerprint, uniqueness: true

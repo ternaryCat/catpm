@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class CustomTraceTest < ActiveSupport::TestCase
   self.use_transactional_tests = false
@@ -30,8 +30,8 @@ class CustomTraceTest < ActiveSupport::TestCase
     Catpm::ErrorRecord.delete_all
   end
 
-  test "trace block flows through to database" do
-    Catpm.trace("PaymentProcessing", metadata: { provider: "stripe" }) do
+  test 'trace block flows through to database' do
+    Catpm.trace('PaymentProcessing', metadata: { provider: 'stripe' }) do
       sleep(0.01)
     end
 
@@ -39,16 +39,16 @@ class CustomTraceTest < ActiveSupport::TestCase
 
     assert_equal 1, Catpm::Bucket.count
     bucket = Catpm::Bucket.first
-    assert_equal "custom", bucket.kind
-    assert_equal "PaymentProcessing", bucket.target
+    assert_equal 'custom', bucket.kind
+    assert_equal 'PaymentProcessing', bucket.target
     assert_equal 1, bucket.count
     assert bucket.duration_sum >= 5.0
   end
 
-  test "trace error flows through to database" do
+  test 'trace error flows through to database' do
     assert_raises(RuntimeError) do
-      Catpm.trace("FailingTask") do
-        raise RuntimeError, "task failed"
+      Catpm.trace('FailingTask') do
+        raise RuntimeError, 'task failed'
       end
     end
 
@@ -56,13 +56,13 @@ class CustomTraceTest < ActiveSupport::TestCase
 
     assert_equal 1, Catpm::ErrorRecord.count
     error = Catpm::ErrorRecord.first
-    assert_equal "RuntimeError", error.error_class
-    assert_equal "task failed", error.message
-    assert_equal "custom", error.kind
+    assert_equal 'RuntimeError', error.error_class
+    assert_equal 'task failed', error.message
+    assert_equal 'custom', error.kind
   end
 
-  test "manual span flows through to database" do
-    span = Catpm.start_trace("LongImport", metadata: { file: "users.csv" })
+  test 'manual span flows through to database' do
+    span = Catpm.start_trace('LongImport', metadata: { file: 'users.csv' })
     sleep(0.01)
     span.finish
 
@@ -70,7 +70,7 @@ class CustomTraceTest < ActiveSupport::TestCase
 
     assert_equal 1, Catpm::Bucket.count
     bucket = Catpm::Bucket.first
-    assert_equal "custom", bucket.kind
-    assert_equal "LongImport", bucket.target
+    assert_equal 'custom', bucket.kind
+    assert_equal 'LongImport', bucket.target
   end
 end

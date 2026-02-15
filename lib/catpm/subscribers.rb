@@ -14,7 +14,7 @@ module Catpm
 
         if Catpm.config.instrument_http
           @http_subscriber = ActiveSupport::Notifications.subscribe(
-            "process_action.action_controller"
+            'process_action.action_controller'
           ) do |event|
             Collector.process_action_controller(event)
           end
@@ -22,7 +22,7 @@ module Catpm
 
         if Catpm.config.instrument_jobs
           @job_subscriber = ActiveSupport::Notifications.subscribe(
-            "perform.active_job"
+            'perform.active_job'
           ) do |event|
             Collector.process_active_job(event)
           end

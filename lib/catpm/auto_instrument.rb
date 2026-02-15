@@ -101,11 +101,11 @@ module Catpm
         methods.each do |method_spec|
           next if @applied.include?(method_spec)
 
-          if method_spec.include?("#")
-            class_name, method_name = method_spec.split("#", 2)
+          if method_spec.include?('#')
+            class_name, method_name = method_spec.split('#', 2)
             instrument_instance_method(class_name, method_name, method_spec)
-          elsif method_spec.include?(".")
-            class_name, method_name = method_spec.split(".", 2)
+          elsif method_spec.include?('.')
+            class_name, method_name = method_spec.split('.', 2)
             instrument_class_method(class_name, method_name, method_spec)
           end
         end

@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 Catpm::Engine.routes.draw do
-  root "status#index"
+  root 'status#index'
   resources :status, only: [:index]
   resources :system, only: [:index]
-  get "endpoint", to: "endpoints#show", as: :endpoint
+  get 'endpoint', to: 'endpoints#show', as: :endpoint
   resources :samples, only: [:show]
   resources :events, only: [:index, :show], param: :name
   resources :errors, only: [:index, :show, :destroy] do

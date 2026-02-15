@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class FlusherTest < ActiveSupport::TestCase
   setup do
@@ -21,10 +21,10 @@ class FlusherTest < ActiveSupport::TestCase
     Catpm::ErrorRecord.delete_all
   end
 
-  test "flush_cycle persists bucket from events" do
+  test 'flush_cycle persists bucket from events' do
     5.times do
       @buffer.push(Catpm::Event.new(
-        kind: :http, target: "UsersController#index", operation: "GET",
+        kind: :http, target: 'UsersController#index', operation: 'GET',
         duration: 50.0, started_at: Time.current,
         metadata: { db_runtime: 10.0 }
       ))
@@ -34,9 +34,9 @@ class FlusherTest < ActiveSupport::TestCase
 
     assert_equal 1, Catpm::Bucket.count
     bucket = Catpm::Bucket.first
-    assert_equal "http", bucket.kind
-    assert_equal "UsersController#index", bucket.target
-    assert_equal "GET", bucket.operation
+    assert_equal 'http', bucket.kind
+    assert_equal 'UsersController#index', bucket.target
+    assert_equal 'GET', bucket.operation
     assert_equal 5, bucket.count
     assert_equal 5, bucket.success_count
     assert_equal 0, bucket.failure_count
@@ -46,64 +46,64 @@ class FlusherTest < ActiveSupport::TestCase
     assert_equal 1, Catpm.stats[:flushes]
   end
 
-  test "flush_cycle groups by kind, target, operation, bucket_start" do
+  test 'flush_cycle groups by kind, target, operation, bucket_start' do
     now = Time.current.change(sec: 0)
-    @buffer.push(Catpm::Event.new(kind: :http, target: "A#index", operation: "GET", duration: 10.0, started_at: now))
-    @buffer.push(Catpm::Event.new(kind: :http, target: "A#index", operation: "POST", duration: 20.0, started_at: now))
-    @buffer.push(Catpm::Event.new(kind: :job, target: "SomeJob", operation: "default", duration: 100.0, started_at: now))
+    @buffer.push(Catpm::Event.new(kind: :http, target: 'A#index', operation: 'GET', duration: 10.0, started_at: now))
+    @buffer.push(Catpm::Event.new(kind: :http, target: 'A#index', operation: 'POST', duration: 20.0, started_at: now))
+    @buffer.push(Catpm::Event.new(kind: :job, target: 'SomeJob', operation: 'default', duration: 100.0, started_at: now))
 
     @flusher.flush_cycle
 
     assert_equal 3, Catpm::Bucket.count
   end
 
-  test "flush_cycle records slow samples" do
+  test 'flush_cycle records slow samples' do
     Catpm.configure { |c| c.slow_threshold = 100 }
 
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#slow", operation: "GET",
+      kind: :http, target: 'A#slow', operation: 'GET',
       duration: 500.0, started_at: Time.current,
-      context: { path: "/slow" }
+      context: { path: '/slow' }
     ))
 
     @flusher.flush_cycle
 
     assert_equal 1, Catpm::Sample.count
     sample = Catpm::Sample.first
-    assert_equal "slow", sample.sample_type
+    assert_equal 'slow', sample.sample_type
     assert_equal 500.0, sample.duration
   end
 
-  test "flush_cycle records error events" do
+  test 'flush_cycle records error events' do
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#error", operation: "GET",
+      kind: :http, target: 'A#error', operation: 'GET',
       duration: 50.0, started_at: Time.current,
-      error_class: "RuntimeError",
-      error_message: "boom",
+      error_class: 'RuntimeError',
+      error_message: 'boom',
       backtrace: ["app/controllers/a_controller.rb:10:in `error'"],
-      context: { path: "/error" }
+      context: { path: '/error' }
     ))
 
     @flusher.flush_cycle
 
     assert_equal 1, Catpm::ErrorRecord.count
     error = Catpm::ErrorRecord.first
-    assert_equal "RuntimeError", error.error_class
-    assert_equal "boom", error.message
+    assert_equal 'RuntimeError', error.error_class
+    assert_equal 'boom', error.message
     assert_equal 1, error.occurrences_count
-    assert_equal "http", error.kind
+    assert_equal 'http', error.kind
 
     # Also check failure count in bucket
     bucket = Catpm::Bucket.first
     assert_equal 1, bucket.failure_count
   end
 
-  test "flush_cycle groups duplicate errors by fingerprint" do
+  test 'flush_cycle groups duplicate errors by fingerprint' do
     2.times do
       @buffer.push(Catpm::Event.new(
-        kind: :http, target: "A#error", operation: "GET",
+        kind: :http, target: 'A#error', operation: 'GET',
         duration: 50.0, started_at: Time.current,
-        error_class: "RuntimeError", error_message: "boom",
+        error_class: 'RuntimeError', error_message: 'boom',
         backtrace: ["app/controllers/a_controller.rb:10:in `error'"]
       ))
     end
@@ -114,10 +114,10 @@ class FlusherTest < ActiveSupport::TestCase
     assert_equal 2, Catpm::ErrorRecord.first.occurrences_count
   end
 
-  test "flush_cycle builds tdigest" do
+  test 'flush_cycle builds tdigest' do
     10.times do |i|
       @buffer.push(Catpm::Event.new(
-        kind: :http, target: "A#index", operation: "GET",
+        kind: :http, target: 'A#index', operation: 'GET',
         duration: (i + 1) * 10.0, started_at: Time.current
       ))
     end
@@ -133,17 +133,17 @@ class FlusherTest < ActiveSupport::TestCase
     assert p50 > 0
   end
 
-  test "flush_cycle is no-op when buffer is empty" do
+  test 'flush_cycle is no-op when buffer is empty' do
     @flusher.flush_cycle
     assert_equal 0, Catpm::Bucket.count
   end
 
-  test "flush_cycle respects circuit breaker" do
+  test 'flush_cycle respects circuit breaker' do
     # Open the circuit breaker
     5.times { @flusher.instance_variable_get(:@circuit).record_failure }
 
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#index", operation: "GET",
+      kind: :http, target: 'A#index', operation: 'GET',
       duration: 50.0, started_at: Time.current
     ))
 
@@ -154,18 +154,18 @@ class FlusherTest < ActiveSupport::TestCase
     assert_equal 0, Catpm::Bucket.count
   end
 
-  test "multiple flush cycles accumulate bucket data" do
+  test 'multiple flush cycles accumulate bucket data' do
     now = Time.current.change(sec: 0)
 
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#index", operation: "GET",
+      kind: :http, target: 'A#index', operation: 'GET',
       duration: 50.0, started_at: now,
       metadata: { db_runtime: 10.0 }
     ))
     @flusher.flush_cycle
 
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#index", operation: "GET",
+      kind: :http, target: 'A#index', operation: 'GET',
       duration: 100.0, started_at: now,
       metadata: { db_runtime: 20.0 }
     ))
@@ -179,20 +179,20 @@ class FlusherTest < ActiveSupport::TestCase
     assert_in_delta 50.0, bucket.duration_min, 0.01
 
     metadata = bucket.parsed_metadata_sum
-    assert_in_delta 30.0, metadata["db_runtime"], 0.01
+    assert_in_delta 30.0, metadata['db_runtime'], 0.01
   end
 
-  test "build_error_context includes segments, duration, status, and target" do
-    segments = [{ type: "sql", duration: 5.0, offset: 0, detail: "SELECT 1" }]
+  test 'build_error_context includes segments, duration, status, and target' do
+    segments = [{ type: 'sql', duration: 5.0, offset: 0, detail: 'SELECT 1' }]
     summary = { sql_count: 1, sql_duration: 5.0 }
 
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "UsersController#show", operation: "GET",
+      kind: :http, target: 'UsersController#show', operation: 'GET',
       duration: 42.5, started_at: Time.current, status: 500,
-      error_class: "RuntimeError", error_message: "boom",
+      error_class: 'RuntimeError', error_message: 'boom',
       backtrace: ["app/controllers/users_controller.rb:10:in `show'"],
       context: {
-        method: "GET", path: "/users/1",
+        method: 'GET', path: '/users/1',
         segments: segments,
         segment_summary: summary,
         segments_capped: false
@@ -204,16 +204,16 @@ class FlusherTest < ActiveSupport::TestCase
     error = Catpm::ErrorRecord.first
     ctx = error.parsed_contexts.first
 
-    assert_in_delta 42.5, ctx["duration"], 0.01
-    assert_equal 500, ctx["status"]
-    assert_equal "UsersController#show", ctx["target"]
-    assert_equal 1, ctx["segments"].size
-    assert_equal "sql", ctx["segments"].first["type"]
-    assert_equal({ "sql_count" => 1, "sql_duration" => 5.0 }, ctx["segment_summary"])
-    assert_equal false, ctx["segments_capped"]
+    assert_in_delta 42.5, ctx['duration'], 0.01
+    assert_equal 500, ctx['status']
+    assert_equal 'UsersController#show', ctx['target']
+    assert_equal 1, ctx['segments'].size
+    assert_equal 'sql', ctx['segments'].first['type']
+    assert_equal({ 'sql_count' => 1, 'sql_duration' => 5.0 }, ctx['segment_summary'])
+    assert_equal false, ctx['segments_capped']
   end
 
-  test "downsample_buckets merges old 1-minute buckets into 5-minute buckets" do
+  test 'downsample_buckets merges old 1-minute buckets into 5-minute buckets' do
     # Create five 1-minute buckets with bucket_start > 1 hour ago, all within same 5-min window
     base_time = 2.hours.ago.change(sec: 0)
     # Align base_time to a 5-minute boundary
@@ -226,11 +226,11 @@ class FlusherTest < ActiveSupport::TestCase
       10.times { |j| td.add((i + 1) * 10.0 + j) }
 
       Catpm::Bucket.create!(
-        kind: "http", target: "A#index", operation: "GET",
+        kind: 'http', target: 'A#index', operation: 'GET',
         bucket_start: aligned_base + (i * 60),
         count: 10, success_count: 9, failure_count: 1,
         duration_sum: 100.0, duration_max: 20.0 + i, duration_min: 5.0 - i,
-        metadata_sum: { "db_runtime" => 50.0 }.to_json,
+        metadata_sum: { 'db_runtime' => 50.0 }.to_json,
         p95_digest: td.serialize
       )
     end
@@ -250,7 +250,7 @@ class FlusherTest < ActiveSupport::TestCase
     assert_in_delta 500.0, total_duration, 0.01
 
     # Verify metadata was merged additively
-    total_db_runtime = remaining.sum { |b| b.parsed_metadata_sum["db_runtime"].to_f }
+    total_db_runtime = remaining.sum { |b| b.parsed_metadata_sum['db_runtime'].to_f }
     assert_in_delta 250.0, total_db_runtime, 0.01
 
     # Verify TDigest was merged
@@ -261,12 +261,12 @@ class FlusherTest < ActiveSupport::TestCase
     end
   end
 
-  test "downsample_buckets skips recent buckets" do
+  test 'downsample_buckets skips recent buckets' do
     # Create buckets within the last hour — should NOT be downsampled
     recent_time = 30.minutes.ago.change(sec: 0)
     3.times do |i|
       Catpm::Bucket.create!(
-        kind: "http", target: "A#index", operation: "GET",
+        kind: 'http', target: 'A#index', operation: 'GET',
         bucket_start: recent_time + (i * 60),
         count: 5, success_count: 5, failure_count: 0,
         duration_sum: 50.0, duration_max: 15.0, duration_min: 5.0
@@ -278,19 +278,19 @@ class FlusherTest < ActiveSupport::TestCase
     assert_equal 3, Catpm::Bucket.count
   end
 
-  test "build_error_context omits segments when not present" do
+  test 'build_error_context omits segments when not present' do
     @buffer.push(Catpm::Event.new(
-      kind: :http, target: "A#error", operation: "GET",
+      kind: :http, target: 'A#error', operation: 'GET',
       duration: 50.0, started_at: Time.current,
-      error_class: "RuntimeError", error_message: "boom",
-      backtrace: ["app/foo.rb:1"],
-      context: { path: "/error" }
+      error_class: 'RuntimeError', error_message: 'boom',
+      backtrace: ['app/foo.rb:1'],
+      context: { path: '/error' }
     ))
 
     @flusher.flush_cycle
 
     ctx = Catpm::ErrorRecord.first.parsed_contexts.first
-    assert_nil ctx["segments"]
-    assert_nil ctx["segment_summary"]
+    assert_nil ctx['segments']
+    assert_nil ctx['segment_summary']
   end
 end

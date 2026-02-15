@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class TraceTest < ActiveSupport::TestCase
   setup do
@@ -18,8 +18,8 @@ class TraceTest < ActiveSupport::TestCase
 
   # ─── Outside request (standalone event) ───
 
-  test "trace block records custom event when outside request" do
-    result = Catpm.trace("PaymentProcessing") do
+  test 'trace block records custom event when outside request' do
+    result = Catpm.trace('PaymentProcessing') do
       sleep(0.005)
       42
     end
@@ -28,111 +28,111 @@ class TraceTest < ActiveSupport::TestCase
     assert_equal 1, @buffer.size
 
     ev = @buffer.drain.first
-    assert_equal "custom", ev.kind
-    assert_equal "PaymentProcessing", ev.target
+    assert_equal 'custom', ev.kind
+    assert_equal 'PaymentProcessing', ev.target
     assert ev.duration >= 4.0, "Expected duration >= 4ms, got #{ev.duration}"
   end
 
-  test "trace block with metadata outside request" do
-    Catpm.trace("TelegramPoller#handle", metadata: { update_type: "message" }) do
+  test 'trace block with metadata outside request' do
+    Catpm.trace('TelegramPoller#handle', metadata: { update_type: 'message' }) do
       # work
     end
 
     ev = @buffer.drain.first
-    assert_equal({ update_type: "message" }, ev.metadata)
+    assert_equal({ update_type: 'message' }, ev.metadata)
   end
 
-  test "trace block records error and re-raises" do
+  test 'trace block records error and re-raises' do
     assert_raises(RuntimeError) do
-      Catpm.trace("FailingTask") do
-        raise RuntimeError, "task failed"
+      Catpm.trace('FailingTask') do
+        raise RuntimeError, 'task failed'
       end
     end
 
     ev = @buffer.drain.first
-    assert_equal "FailingTask", ev.target
+    assert_equal 'FailingTask', ev.target
     assert ev.error?
-    assert_equal "RuntimeError", ev.error_class
-    assert_equal "task failed", ev.error_message
+    assert_equal 'RuntimeError', ev.error_class
+    assert_equal 'task failed', ev.error_message
     assert ev.duration >= 0
   end
 
-  test "trace is no-op when disabled" do
+  test 'trace is no-op when disabled' do
     Catpm.configure { |c| c.enabled = false }
 
-    result = Catpm.trace("Something") { 99 }
+    result = Catpm.trace('Something') { 99 }
 
     assert_equal 99, result
     assert_equal 0, @buffer.size
   end
 
-  test "trace is no-op when buffer is nil" do
+  test 'trace is no-op when buffer is nil' do
     Catpm.buffer = nil
 
-    result = Catpm.trace("Something") { 99 }
+    result = Catpm.trace('Something') { 99 }
 
     assert_equal 99, result
   end
 
   # ─── Inside request (adds segment) ───
 
-  test "trace adds custom segment when inside request" do
+  test 'trace adds custom segment when inside request' do
     req_segments = Catpm::RequestSegments.new(max_segments: 50)
     Thread.current[:catpm_request_segments] = req_segments
 
-    result = Catpm.trace("fetch_exchange_rates") do
+    result = Catpm.trace('fetch_exchange_rates') do
       sleep(0.005)
-      "rates"
+      'rates'
     end
 
-    assert_equal "rates", result
-    assert_equal 0, @buffer.size, "Should not create standalone event inside request"
+    assert_equal 'rates', result
+    assert_equal 0, @buffer.size, 'Should not create standalone event inside request'
     assert_equal 1, req_segments.segments.size
 
     seg = req_segments.segments.first
-    assert_equal "custom", seg[:type]
-    assert_equal "fetch_exchange_rates", seg[:detail]
+    assert_equal 'custom', seg[:type]
+    assert_equal 'fetch_exchange_rates', seg[:detail]
     assert seg[:duration] >= 4.0
     assert_equal 1, req_segments.summary[:custom_count]
     assert req_segments.summary[:custom_duration] >= 4.0
   end
 
-  test "trace records offset inside request" do
+  test 'trace records offset inside request' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
     Thread.current[:catpm_request_segments] = req_segments
 
     sleep(0.01)
-    Catpm.trace("delayed_work") { "done" }
+    Catpm.trace('delayed_work') { 'done' }
 
     seg = req_segments.segments.first
     assert seg[:offset] >= 9.0, "Expected offset >= 9ms, got #{seg[:offset]}"
   end
 
-  test "trace re-raises error but still adds segment inside request" do
+  test 'trace re-raises error but still adds segment inside request' do
     req_segments = Catpm::RequestSegments.new(max_segments: 50)
     Thread.current[:catpm_request_segments] = req_segments
 
     assert_raises(RuntimeError) do
-      Catpm.trace("FailingWork") { raise "boom" }
+      Catpm.trace('FailingWork') { raise 'boom' }
     end
 
     assert_equal 1, req_segments.segments.size
-    assert_equal "FailingWork", req_segments.segments.first[:detail]
+    assert_equal 'FailingWork', req_segments.segments.first[:detail]
     assert_equal 0, @buffer.size
   end
 
   # ─── Span API ───
 
-  test "start_trace creates a span" do
-    span = Catpm.start_trace("LongImport", metadata: { file: "users.csv" })
+  test 'start_trace creates a span' do
+    span = Catpm.start_trace('LongImport', metadata: { file: 'users.csv' })
 
     assert_instance_of Catpm::Span, span
-    refute span.finished?
+    assert_not span.finished?
   end
 
-  test "span finish records custom event outside request" do
-    span = Catpm.start_trace("LongImport", metadata: { file: "users.csv" })
+  test 'span finish records custom event outside request' do
+    span = Catpm.start_trace('LongImport', metadata: { file: 'users.csv' })
     sleep(0.005)
     span.finish
 
@@ -140,16 +140,16 @@ class TraceTest < ActiveSupport::TestCase
     assert_equal 1, @buffer.size
 
     ev = @buffer.drain.first
-    assert_equal "custom", ev.kind
-    assert_equal "LongImport", ev.target
+    assert_equal 'custom', ev.kind
+    assert_equal 'LongImport', ev.target
     assert ev.duration >= 4.0
   end
 
-  test "span finish adds segment inside request" do
+  test 'span finish adds segment inside request' do
     req_segments = Catpm::RequestSegments.new(max_segments: 50)
     Thread.current[:catpm_request_segments] = req_segments
 
-    span = Catpm.start_trace("ApiCall")
+    span = Catpm.start_trace('ApiCall')
     sleep(0.005)
     span.finish
 
@@ -158,35 +158,35 @@ class TraceTest < ActiveSupport::TestCase
     assert_equal 1, req_segments.segments.size
 
     seg = req_segments.segments.first
-    assert_equal "custom", seg[:type]
-    assert_equal "ApiCall", seg[:detail]
+    assert_equal 'custom', seg[:type]
+    assert_equal 'ApiCall', seg[:detail]
     assert seg[:duration] >= 4.0
   end
 
-  test "span finish with error records error event" do
-    error = RuntimeError.new("import failed")
+  test 'span finish with error records error event' do
+    error = RuntimeError.new('import failed')
     error.set_backtrace(["app/services/import.rb:10:in `run'"])
 
-    span = Catpm.start_trace("FailingImport")
+    span = Catpm.start_trace('FailingImport')
     span.finish(error: error)
 
     ev = @buffer.drain.first
     assert ev.error?
-    assert_equal "RuntimeError", ev.error_class
+    assert_equal 'RuntimeError', ev.error_class
   end
 
-  test "span finish is idempotent" do
-    span = Catpm.start_trace("Test")
+  test 'span finish is idempotent' do
+    span = Catpm.start_trace('Test')
     span.finish
     span.finish
 
     assert_equal 1, @buffer.size
   end
 
-  test "span finish is no-op when disabled" do
+  test 'span finish is no-op when disabled' do
     Catpm.configure { |c| c.enabled = false }
 
-    span = Catpm.start_trace("Test")
+    span = Catpm.start_trace('Test')
     span.finish
 
     assert span.finished?
@@ -195,32 +195,32 @@ class TraceTest < ActiveSupport::TestCase
 
   # ─── Catpm.span block API ───
 
-  test "Catpm.span creates nested segment inside request" do
+  test 'Catpm.span creates nested segment inside request' do
     req_segments = Catpm::RequestSegments.new(max_segments: 50)
     Thread.current[:catpm_request_segments] = req_segments
 
-    result = Catpm.span("PaymentService.process") do
+    result = Catpm.span('PaymentService.process') do
       sleep(0.005)
-      "paid"
+      'paid'
     end
 
-    assert_equal "paid", result
+    assert_equal 'paid', result
     assert_equal 1, req_segments.segments.size
 
     seg = req_segments.segments.first
-    assert_equal "custom", seg[:type]
-    assert_equal "PaymentService.process", seg[:detail]
+    assert_equal 'custom', seg[:type]
+    assert_equal 'PaymentService.process', seg[:detail]
     assert seg[:duration] >= 4.0, "Expected duration >= 4ms, got #{seg[:duration]}"
-    assert_equal 0, @buffer.size, "Should not create standalone event"
+    assert_equal 0, @buffer.size, 'Should not create standalone event'
   end
 
-  test "Catpm.span nests child segments under parent" do
+  test 'Catpm.span nests child segments under parent' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
     Thread.current[:catpm_request_segments] = req_segments
 
-    Catpm.span("Outer") do
-      req_segments.add(type: :sql, duration: 5.0, detail: "SELECT 1", started_at: start)
+    Catpm.span('Outer') do
+      req_segments.add(type: :sql, duration: 5.0, detail: 'SELECT 1', started_at: start)
     end
 
     # Outer span is index 0, SQL is index 1
@@ -228,40 +228,40 @@ class TraceTest < ActiveSupport::TestCase
     assert_equal 0, req_segments.segments[1][:parent_index]
   end
 
-  test "Catpm.span falls back to trace outside request" do
-    result = Catpm.span("StandaloneWork") do
+  test 'Catpm.span falls back to trace outside request' do
+    result = Catpm.span('StandaloneWork') do
       sleep(0.005)
-      "done"
+      'done'
     end
 
-    assert_equal "done", result
+    assert_equal 'done', result
     assert_equal 1, @buffer.size
 
     ev = @buffer.drain.first
-    assert_equal "custom", ev.kind
-    assert_equal "StandaloneWork", ev.target
+    assert_equal 'custom', ev.kind
+    assert_equal 'StandaloneWork', ev.target
     assert ev.duration >= 4.0
   end
 
-  test "Catpm.span is no-op when disabled" do
+  test 'Catpm.span is no-op when disabled' do
     Catpm.configure { |c| c.enabled = false }
 
-    result = Catpm.span("Nothing") { 42 }
+    result = Catpm.span('Nothing') { 42 }
 
     assert_equal 42, result
     assert_equal 0, @buffer.size
   end
 
-  test "Catpm.span re-raises errors and still records segment" do
+  test 'Catpm.span re-raises errors and still records segment' do
     req_segments = Catpm::RequestSegments.new(max_segments: 50)
     Thread.current[:catpm_request_segments] = req_segments
 
     assert_raises(RuntimeError) do
-      Catpm.span("FailingSpan") { raise "boom" }
+      Catpm.span('FailingSpan') { raise 'boom' }
     end
 
     assert_equal 1, req_segments.segments.size
-    assert_equal "FailingSpan", req_segments.segments.first[:detail]
+    assert_equal 'FailingSpan', req_segments.segments.first[:detail]
     assert req_segments.segments.first[:duration] >= 0
   end
 end

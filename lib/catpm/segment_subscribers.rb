@@ -32,7 +32,7 @@ module Catpm
 
         identifier = payload[:identifier].to_s
         if defined?(Rails.root) && identifier.start_with?(Rails.root.to_s)
-          identifier = identifier.sub("#{Rails.root}/", "")
+          identifier = identifier.sub("#{Rails.root}/", '')
         end
 
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -49,9 +49,9 @@ module Catpm
     end
 
     IGNORED_SQL_NAMES = Set.new([
-      "SCHEMA", "EXPLAIN",
-      "ActiveRecord::SchemaMigration Load",
-      "ActiveRecord::InternalMetadata Load"
+      'SCHEMA', 'EXPLAIN',
+      'ActiveRecord::SchemaMigration Load',
+      'ActiveRecord::InternalMetadata Load'
     ]).freeze
 
     class << self
@@ -59,44 +59,44 @@ module Catpm
         unsubscribe!
 
         @controller_span_subscriber = ActiveSupport::Notifications.subscribe(
-          "process_action.action_controller", ControllerSpanSubscriber.new
+          'process_action.action_controller', ControllerSpanSubscriber.new
         )
 
         @sql_subscriber = ActiveSupport::Notifications.subscribe(
-          "sql.active_record"
+          'sql.active_record'
         ) do |event|
           record_sql_segment(event)
         end
 
         @instantiation_subscriber = ActiveSupport::Notifications.subscribe(
-          "instantiation.active_record"
+          'instantiation.active_record'
         ) do |event|
           record_instantiation_segment(event)
         end
 
         @render_template_subscriber = ActiveSupport::Notifications.subscribe(
-          "render_template.action_view", ViewSpanSubscriber.new
+          'render_template.action_view', ViewSpanSubscriber.new
         )
 
         @render_partial_subscriber = ActiveSupport::Notifications.subscribe(
-          "render_partial.action_view", ViewSpanSubscriber.new
+          'render_partial.action_view', ViewSpanSubscriber.new
         )
 
         @cache_read_subscriber = ActiveSupport::Notifications.subscribe(
-          "cache_read.active_support"
+          'cache_read.active_support'
         ) do |event|
-          record_cache_segment(event, "read")
+          record_cache_segment(event, 'read')
         end
 
         @cache_write_subscriber = ActiveSupport::Notifications.subscribe(
-          "cache_write.active_support"
+          'cache_write.active_support'
         ) do |event|
-          record_cache_segment(event, "write")
+          record_cache_segment(event, 'write')
         end
 
         if defined?(ActionMailer)
           @mailer_subscriber = ActiveSupport::Notifications.subscribe(
-            "deliver.action_mailer"
+            'deliver.action_mailer'
           ) do |event|
             record_mailer_segment(event)
           end
@@ -104,15 +104,15 @@ module Catpm
 
         if defined?(ActiveStorage)
           @storage_upload_subscriber = ActiveSupport::Notifications.subscribe(
-            "service_upload.active_storage"
+            'service_upload.active_storage'
           ) do |event|
-            record_storage_segment(event, "upload")
+            record_storage_segment(event, 'upload')
           end
 
           @storage_download_subscriber = ActiveSupport::Notifications.subscribe(
-            "service_download.active_storage"
+            'service_download.active_storage'
           ) do |event|
-            record_storage_segment(event, "download")
+            record_storage_segment(event, 'download')
           end
         end
       end
@@ -150,7 +150,7 @@ module Catpm
 
         payload = event.payload
         record_count = payload[:record_count] || 0
-        class_name = payload[:class_name] || "ActiveRecord"
+        class_name = payload[:class_name] || 'ActiveRecord'
         detail = "#{class_name} x#{record_count}"
         source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
@@ -187,7 +187,7 @@ module Catpm
         key = event.payload[:key].to_s
         hit = event.payload[:hit]
         detail = "cache.#{operation} #{key}"
-        detail += hit ? " (hit)" : " (miss)" if operation == "read" && !hit.nil?
+        detail += hit ? ' (hit)' : ' (miss)' if operation == 'read' && !hit.nil?
         source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         req_segments.add(

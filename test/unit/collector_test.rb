@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-require "test_helper"
-require "ostruct"
+require 'test_helper'
 
 class CollectorTest < ActiveSupport::TestCase
   setup do
@@ -16,10 +15,10 @@ class CollectorTest < ActiveSupport::TestCase
     Catpm.buffer = nil
   end
 
-  test "process_action_controller creates http event" do
+  test 'process_action_controller creates http event' do
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200,
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200,
       duration: 42.5, db_runtime: 10.0, view_runtime: 20.0
     )
 
@@ -27,63 +26,63 @@ class CollectorTest < ActiveSupport::TestCase
 
     assert_equal 1, @buffer.size
     ev = @buffer.drain.first
-    assert_equal "http", ev.kind
-    assert_equal "UsersController#index", ev.target
-    assert_equal "GET", ev.operation
+    assert_equal 'http', ev.kind
+    assert_equal 'UsersController#index', ev.target
+    assert_equal 'GET', ev.operation
     assert_equal 42.5, ev.duration
     assert_equal 200, ev.status
     assert_equal 10.0, ev.metadata[:db_runtime]
     assert_equal 20.0, ev.metadata[:view_runtime]
   end
 
-  test "process_action_controller captures exceptions" do
+  test 'process_action_controller captures exceptions' do
     event = mock_ac_event(
-      controller: "UsersController", action: "create",
-      method: "POST", path: "/users", status: nil,
+      controller: 'UsersController', action: 'create',
+      method: 'POST', path: '/users', status: nil,
       duration: 15.0,
-      exception: ["RuntimeError", "boom"],
-      exception_object: RuntimeError.new("boom")
+      exception: ['RuntimeError', 'boom'],
+      exception_object: RuntimeError.new('boom')
     )
 
     Catpm::Collector.process_action_controller(event)
 
     ev = @buffer.drain.first
     assert ev.error?
-    assert_equal "RuntimeError", ev.error_class
-    assert_equal "boom", ev.error_message
+    assert_equal 'RuntimeError', ev.error_class
+    assert_equal 'boom', ev.error_message
   end
 
-  test "process_action_controller skips ignored targets" do
-    Catpm.configure { |c| c.ignored_targets = ["HealthController#*"] }
+  test 'process_action_controller skips ignored targets' do
+    Catpm.configure { |c| c.ignored_targets = ['HealthController#*'] }
 
     event = mock_ac_event(
-      controller: "HealthController", action: "show",
-      method: "GET", path: "/health", status: 200, duration: 1.0
+      controller: 'HealthController', action: 'show',
+      method: 'GET', path: '/health', status: 200, duration: 1.0
     )
 
     Catpm::Collector.process_action_controller(event)
     assert_equal 0, @buffer.size
   end
 
-  test "process_action_controller is no-op when disabled" do
+  test 'process_action_controller is no-op when disabled' do
     Catpm.configure { |c| c.enabled = false }
 
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200, duration: 10.0
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 10.0
     )
 
     Catpm::Collector.process_action_controller(event)
     assert_equal 0, @buffer.size
   end
 
-  test "process_action_controller scrubs PII from context" do
+  test 'process_action_controller scrubs PII from context' do
     # Rails' default filter_parameters includes :password
     event = mock_ac_event(
-      controller: "UsersController", action: "create",
-      method: "POST", path: "/users", status: 200,
+      controller: 'UsersController', action: 'create',
+      method: 'POST', path: '/users', status: 200,
       duration: 10.0,
-      params: { "controller" => "users", "action" => "create", "name" => "Alice", "password" => "secret123" }
+      params: { 'controller' => 'users', 'action' => 'create', 'name' => 'Alice', 'password' => 'secret123' }
     )
 
     # Reset the cached filter to pick up Rails filter_parameters
@@ -91,87 +90,87 @@ class CollectorTest < ActiveSupport::TestCase
     Catpm::Collector.process_action_controller(event)
 
     ev = @buffer.drain.first
-    params = ev.context[:params] || ev.context["params"]
-    assert_equal "Alice", params["name"] || params[:name]
-    password_val = params["password"] || params[:password]
-    assert_equal "[FILTERED]", password_val
+    params = ev.context[:params] || ev.context['params']
+    assert_equal 'Alice', params['name'] || params[:name]
+    password_val = params['password'] || params[:password]
+    assert_equal '[FILTERED]', password_val
   end
 
-  test "process_action_controller injects root request segment with parent_index" do
+  test 'process_action_controller injects root request segment with parent_index' do
     # Simulate request_start 50ms ago (as if middleware took some time)
     request_start = Process.clock_gettime(Process::CLOCK_MONOTONIC) - 0.050
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: request_start)
-    req_segments.add(type: :sql, duration: 5.0, detail: "SELECT 1")
+    req_segments.add(type: :sql, duration: 5.0, detail: 'SELECT 1')
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200, duration: 42.5
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 42.5
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
+    segments = ev.context[:segments] || ev.context['segments']
 
     # Root segment injected at index 0 with full request duration (>= 50ms)
     root = segments[0]
-    assert_equal "request", root[:type] || root["type"]
-    assert_equal "GET /users", root[:detail] || root["detail"]
-    root_duration = root[:duration] || root["duration"]
+    assert_equal 'request', root[:type] || root['type']
+    assert_equal 'GET /users', root[:detail] || root['detail']
+    root_duration = root[:duration] || root['duration']
     assert root_duration >= 49.0, "Root duration #{root_duration}ms should be >= 49ms (includes middleware time)"
 
     # SQL segment shifted to index 1 with parent_index pointing to root
     sql = segments[1]
-    assert_equal "sql", sql[:type] || sql["type"]
-    assert_equal 0, sql[:parent_index] || sql["parent_index"]
+    assert_equal 'sql', sql[:type] || sql['type']
+    assert_equal 0, sql[:parent_index] || sql['parent_index']
   end
 
-  test "process_action_controller nests controller span under root request" do
+  test 'process_action_controller nests controller span under root request' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
 
     # Simulate ControllerSpanSubscriber.start
-    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: start)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'UsersController#index', started_at: start)
     # SQL query inside controller
-    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: start)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'SELECT * FROM users', started_at: start)
     # Simulate ControllerSpanSubscriber.finish
     req_segments.pop_span(ctrl_idx)
 
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200, duration: 42.5
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 42.5
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
+    segments = ev.context[:segments] || ev.context['segments']
 
     # [0] root request (injected, no parent_index)
     # [1] controller "UsersController#index" (was index 0, had no parent -> parent_index: 0)
     # [2] sql "SELECT ..." (was index 1, had parent_index: 0 -> 0+1=1)
     assert_equal 3, segments.size
-    assert_equal "request", segments[0][:type]
-    refute segments[0].key?(:parent_index)
+    assert_equal 'request', segments[0][:type]
+    assert_not segments[0].key?(:parent_index)
 
-    assert_equal "controller", segments[1][:type]
+    assert_equal 'controller', segments[1][:type]
     assert_equal 0, segments[1][:parent_index]
 
-    assert_equal "sql", segments[2][:type]
+    assert_equal 'sql', segments[2][:type]
     assert_equal 1, segments[2][:parent_index]
   end
 
-  test "process_action_controller controller span has nonzero duration" do
+  test 'process_action_controller controller span has nonzero duration' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
 
     # Controller span wrapping a child custom span — pop_span must set duration before collector reads
-    ctrl_idx = req_segments.push_span(type: :controller, detail: "Api::V1::ExpensesController#create", started_at: start)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'Api::V1::ExpensesController#create', started_at: start)
     sleep(0.005)
-    code_idx = req_segments.push_span(type: :custom, detail: "CreateService#call", started_at: Process.clock_gettime(Process::CLOCK_MONOTONIC))
+    code_idx = req_segments.push_span(type: :custom, detail: 'CreateService#call', started_at: Process.clock_gettime(Process::CLOCK_MONOTONIC))
     sleep(0.005)
     req_segments.pop_span(code_idx)
     req_segments.pop_span(ctrl_idx)
@@ -179,167 +178,167 @@ class CollectorTest < ActiveSupport::TestCase
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "Api::V1::ExpensesController", action: "create",
-      method: "POST", path: "/api/v1/expenses", status: 201, duration: 15.0
+      controller: 'Api::V1::ExpensesController', action: 'create',
+      method: 'POST', path: '/api/v1/expenses', status: 201, duration: 15.0
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
-    ctrl_seg = segments.find { |s| s[:type] == "controller" }
-    code_seg = segments.find { |s| s[:type] == "custom" }
+    segments = ev.context[:segments] || ev.context['segments']
+    ctrl_seg = segments.find { |s| s[:type] == 'controller' }
+    code_seg = segments.find { |s| s[:type] == 'custom' }
 
     assert ctrl_seg[:duration] > 0, "Controller span must have nonzero duration, got #{ctrl_seg[:duration]}"
     assert ctrl_seg[:duration] >= code_seg[:duration],
       "Controller (#{ctrl_seg[:duration]}ms) must be >= its child custom span (#{code_seg[:duration]}ms)"
   end
 
-  test "process_action_controller injects middleware segment when gap before controller" do
+  test 'process_action_controller injects middleware segment when gap before controller' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
 
     # Simulate ControllerSpanSubscriber starting 10ms after request (middleware time)
     sleep(0.01)
     ctrl_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: ctrl_start)
-    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: ctrl_start)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'UsersController#index', started_at: ctrl_start)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'SELECT * FROM users', started_at: ctrl_start)
     req_segments.pop_span(ctrl_idx)
 
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200, duration: 50.0
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 50.0
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
+    segments = ev.context[:segments] || ev.context['segments']
 
     # [0] request, [1] middleware, [2] controller, [3] sql
     assert_equal 4, segments.size
-    assert_equal "request", segments[0][:type]
-    assert_equal "middleware", segments[1][:type]
+    assert_equal 'request', segments[0][:type]
+    assert_equal 'middleware', segments[1][:type]
     assert segments[1][:duration] >= 9.0, "Middleware duration should be >= 9ms, got #{segments[1][:duration]}"
     assert_equal 0, segments[1][:parent_index]
 
-    assert_equal "controller", segments[2][:type]
+    assert_equal 'controller', segments[2][:type]
     assert_equal 0, segments[2][:parent_index]
 
-    assert_equal "sql", segments[3][:type]
-    assert_equal 2, segments[3][:parent_index], "SQL parent should point to controller (shifted)"
+    assert_equal 'sql', segments[3][:type]
+    assert_equal 2, segments[3][:parent_index], 'SQL parent should point to controller (shifted)'
 
     # Synthetic middleware must appear in segment_summary for Time Breakdown
-    summary = ev.context[:segment_summary] || ev.context["segment_summary"]
+    summary = ev.context[:segment_summary] || ev.context['segment_summary']
     assert_equal 1, summary[:middleware_count]
     assert summary[:middleware_duration] >= 9.0, "Summary middleware_duration should be >= 9ms, got #{summary[:middleware_duration]}"
   end
 
-  test "process_action_controller skips synthetic middleware when real middleware segments exist" do
+  test 'process_action_controller skips synthetic middleware when real middleware segments exist' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
 
     # Simulate MiddlewareProbe wrapping a middleware (push_span/pop_span)
     sleep(0.005)
     mw_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    mw_idx = req_segments.push_span(type: :middleware, detail: "ActionDispatch::Executor", started_at: mw_start)
+    mw_idx = req_segments.push_span(type: :middleware, detail: 'ActionDispatch::Executor', started_at: mw_start)
 
     # Controller starts inside the middleware span
     sleep(0.005)
     ctrl_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    ctrl_idx = req_segments.push_span(type: :controller, detail: "UsersController#index", started_at: ctrl_start)
-    req_segments.add(type: :sql, duration: 3.0, detail: "SELECT * FROM users", started_at: ctrl_start)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'UsersController#index', started_at: ctrl_start)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'SELECT * FROM users', started_at: ctrl_start)
     req_segments.pop_span(ctrl_idx)
     req_segments.pop_span(mw_idx)
 
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "UsersController", action: "index",
-      method: "GET", path: "/users", status: 200, duration: 50.0
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 50.0
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
+    segments = ev.context[:segments] || ev.context['segments']
 
     # Should NOT have a synthetic "Middleware Stack" segment
-    synthetic = segments.find { |s| s[:type] == "middleware" && s[:detail] == "Middleware Stack" }
+    synthetic = segments.find { |s| s[:type] == 'middleware' && s[:detail] == 'Middleware Stack' }
     assert_nil synthetic, "Synthetic 'Middleware Stack' should be skipped when real middleware segments exist"
 
     # Should have real middleware segment
-    real_mw = segments.find { |s| s[:type] == "middleware" && s[:detail] == "ActionDispatch::Executor" }
-    assert real_mw, "Real middleware segment should be present"
+    real_mw = segments.find { |s| s[:type] == 'middleware' && s[:detail] == 'ActionDispatch::Executor' }
+    assert real_mw, 'Real middleware segment should be present'
 
     # Structure: [0] request, [1] middleware:Executor, [2] controller, [3] sql
-    assert_equal "request", segments[0][:type]
-    assert_equal "middleware", segments[1][:type]
-    assert_equal "controller", segments[2][:type]
-    assert_equal "sql", segments[3][:type]
+    assert_equal 'request', segments[0][:type]
+    assert_equal 'middleware', segments[1][:type]
+    assert_equal 'controller', segments[2][:type]
+    assert_equal 'sql', segments[3][:type]
   end
 
-  test "process_action_controller preserves nested parent_index after root injection" do
+  test 'process_action_controller preserves nested parent_index after root injection' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
 
     # Simulate Catpm.span("Outer") wrapping a SQL query
-    span_idx = req_segments.push_span(type: :custom, detail: "Outer", started_at: start)
-    req_segments.add(type: :sql, duration: 2.0, detail: "INSERT ...", started_at: start)
+    span_idx = req_segments.push_span(type: :custom, detail: 'Outer', started_at: start)
+    req_segments.add(type: :sql, duration: 2.0, detail: 'INSERT ...', started_at: start)
     req_segments.pop_span(span_idx)
 
     Thread.current[:catpm_request_segments] = req_segments
 
     event = mock_ac_event(
-      controller: "UsersController", action: "create",
-      method: "POST", path: "/users", status: 201, duration: 50.0
+      controller: 'UsersController', action: 'create',
+      method: 'POST', path: '/users', status: 201, duration: 50.0
     )
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
     ev = @buffer.drain.first
-    segments = ev.context[:segments] || ev.context["segments"]
+    segments = ev.context[:segments] || ev.context['segments']
 
     # [0] root request (no parent_index)
     # [1] custom "Outer" (parent_index: 0, was nil -> set to 0)
     # [2] sql "INSERT" (parent_index: 1, was 0 -> 0+1=1)
     assert_equal 3, segments.size
-    assert_equal "request", segments[0][:type]
-    refute segments[0].key?(:parent_index)
+    assert_equal 'request', segments[0][:type]
+    assert_not segments[0].key?(:parent_index)
 
-    assert_equal "custom", segments[1][:type]
+    assert_equal 'custom', segments[1][:type]
     assert_equal 0, segments[1][:parent_index]
 
-    assert_equal "sql", segments[2][:type]
+    assert_equal 'sql', segments[2][:type]
     assert_equal 1, segments[2][:parent_index]
   end
 
-  test "process_active_job creates job event" do
+  test 'process_active_job creates job event' do
     event = mock_job_event(
-      job_class: "SendEmailJob", job_id: "abc-123",
-      queue: "default", executions: 1, duration: 500.0
+      job_class: 'SendEmailJob', job_id: 'abc-123',
+      queue: 'default', executions: 1, duration: 500.0
     )
 
     Catpm::Collector.process_active_job(event)
 
     assert_equal 1, @buffer.size
     ev = @buffer.drain.first
-    assert_equal "job", ev.kind
-    assert_equal "SendEmailJob", ev.target
-    assert_equal "default", ev.operation
+    assert_equal 'job', ev.kind
+    assert_equal 'SendEmailJob', ev.target
+    assert_equal 'default', ev.operation
     assert_equal 500.0, ev.duration
-    assert_equal "abc-123", ev.context[:job_id]
+    assert_equal 'abc-123', ev.context[:job_id]
   end
 
-  test "process_active_job captures job errors" do
-    error = StandardError.new("job failed")
+  test 'process_active_job captures job errors' do
+    error = StandardError.new('job failed')
     error.set_backtrace(["app/jobs/send_email_job.rb:10:in `perform'"])
 
     event = mock_job_event(
-      job_class: "SendEmailJob", job_id: "abc-123",
-      queue: "default", executions: 2, duration: 100.0,
+      job_class: 'SendEmailJob', job_id: 'abc-123',
+      queue: 'default', executions: 2, duration: 100.0,
       exception_object: error
     )
 
@@ -347,51 +346,51 @@ class CollectorTest < ActiveSupport::TestCase
 
     ev = @buffer.drain.first
     assert ev.error?
-    assert_equal "StandardError", ev.error_class
-    assert_equal "job failed", ev.error_message
+    assert_equal 'StandardError', ev.error_class
+    assert_equal 'job failed', ev.error_message
   end
 
-  test "process_custom creates custom event" do
+  test 'process_custom creates custom event' do
     Catpm::Collector.process_custom(
-      name: "PaymentProcessing",
+      name: 'PaymentProcessing',
       duration: 250.0,
-      metadata: { provider: "stripe" },
+      metadata: { provider: 'stripe' },
       context: { order_id: 42 }
     )
 
     assert_equal 1, @buffer.size
     ev = @buffer.drain.first
-    assert_equal "custom", ev.kind
-    assert_equal "PaymentProcessing", ev.target
+    assert_equal 'custom', ev.kind
+    assert_equal 'PaymentProcessing', ev.target
     assert_equal 250.0, ev.duration
-    assert_equal({ provider: "stripe" }, ev.metadata)
+    assert_equal({ provider: 'stripe' }, ev.metadata)
   end
 
-  test "process_custom records errors" do
-    error = RuntimeError.new("payment failed")
+  test 'process_custom records errors' do
+    error = RuntimeError.new('payment failed')
     error.set_backtrace(["app/services/payment.rb:5:in `charge'"])
 
     Catpm::Collector.process_custom(
-      name: "PaymentProcessing",
+      name: 'PaymentProcessing',
       duration: 50.0,
       error: error
     )
 
     ev = @buffer.drain.first
     assert ev.error?
-    assert_equal "RuntimeError", ev.error_class
+    assert_equal 'RuntimeError', ev.error_class
   end
 
-  test "process_custom skips ignored targets" do
-    Catpm.configure { |c| c.ignored_targets = ["HealthCheck"] }
+  test 'process_custom skips ignored targets' do
+    Catpm.configure { |c| c.ignored_targets = ['HealthCheck'] }
 
-    Catpm::Collector.process_custom(name: "HealthCheck", duration: 1.0)
+    Catpm::Collector.process_custom(name: 'HealthCheck', duration: 1.0)
     assert_equal 0, @buffer.size
   end
 
-  test "process_custom is no-op when buffer is nil" do
+  test 'process_custom is no-op when buffer is nil' do
     Catpm.buffer = nil
-    Catpm::Collector.process_custom(name: "Test", duration: 1.0)
+    Catpm::Collector.process_custom(name: 'Test', duration: 1.0)
     assert_nil Catpm.buffer
   end
 
@@ -408,33 +407,36 @@ class CollectorTest < ActiveSupport::TestCase
       status: status,
       db_runtime: db_runtime,
       view_runtime: view_runtime,
-      params: params || { "controller" => controller.underscore.sub("_controller", ""), "action" => action },
+      params: params || { 'controller' => controller.underscore.sub('_controller', ''), 'action' => action },
       exception: exception,
       exception_object: exception_object
     }
 
-    OpenStruct.new(
+    MockEvent.new(
       payload: payload,
       duration: duration,
       time: Time.current
     )
   end
 
+  MockEvent = Struct.new(:payload, :duration, :time, keyword_init: true)
+  MockJob = Struct.new(:job_id, :queue_name, :executions, keyword_init: true)
+  MockClass = Struct.new(:name, keyword_init: true)
+
   def mock_job_event(job_class:, job_id:, queue:, executions:, duration:, exception_object: nil)
-    job = OpenStruct.new(
+    job = MockJob.new(
       job_id: job_id,
       queue_name: queue,
       executions: executions
     )
-    # Define class.name on the job mock
-    job.define_singleton_method(:class) { OpenStruct.new(name: job_class) }
+    job.define_singleton_method(:class) { MockClass.new(name: job_class) }
 
     payload = {
       job: job,
       exception_object: exception_object
     }
 
-    OpenStruct.new(
+    MockEvent.new(
       payload: payload,
       duration: duration,
       time: Time.current

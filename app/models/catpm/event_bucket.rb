@@ -2,7 +2,7 @@
 
 module Catpm
   class EventBucket < ApplicationRecord
-    self.table_name = "catpm_event_buckets"
+    self.table_name = 'catpm_event_buckets'
 
     validates :name, :bucket_start, presence: true
 

@@ -39,16 +39,16 @@ module Catpm
       end
 
       # Sort
-      @sort = %w[name total_count last_seen].include?(params[:sort]) ? params[:sort] : "total_count"
-      @dir = params[:dir] == "asc" ? "asc" : "desc"
-      events_list = events_list.sort_by { |e| e[@sort.to_sym] || "" }
-      events_list = events_list.reverse if @dir == "desc"
+      @sort = %w[name total_count last_seen].include?(params[:sort]) ? params[:sort] : 'total_count'
+      @dir = params[:dir] == 'asc' ? 'asc' : 'desc'
+      events_list = events_list.sort_by { |e| e[@sort.to_sym] || '' }
+      events_list = events_list.reverse if @dir == 'desc'
 
       @total_event_names = events_list.size
 
       # Sparkline times for tooltips
       now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds
-      @sparkline_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime("%H:%M") }
+      @sparkline_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
 
       # Pagination
       @page = [ params[:page].to_i, 1 ].max
@@ -78,7 +78,7 @@ module Catpm
 
       now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds
       @chart_data = 60.times.map { |i| slots[now_slot - (59 - i) * bucket_seconds] || 0 }
-      @chart_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime("%H:%M") }
+      @chart_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
 
       # Recent samples
       @samples = Catpm::EventSample.by_name(@name).order(recorded_at: :desc).limit(20)

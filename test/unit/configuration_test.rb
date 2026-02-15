@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class ConfigurationTest < ActiveSupport::TestCase
   setup do
     Catpm.reset_config!
   end
 
-  test "has sensible defaults" do
+  test 'has sensible defaults' do
     config = Catpm.config
 
     assert_equal true, config.enabled
@@ -40,7 +40,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 5, config.shutdown_timeout
   end
 
-  test "configure block sets values" do
+  test 'configure block sets values' do
     Catpm.configure do |config|
       config.enabled = false
       config.slow_threshold = 1000
@@ -54,7 +54,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal true, Catpm.config.instrument_jobs
   end
 
-  test "reset_config! restores defaults" do
+  test 'reset_config! restores defaults' do
     Catpm.configure { |c| c.slow_threshold = 9999 }
     assert_equal 9999, Catpm.config.slow_threshold
 
@@ -62,7 +62,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 500, Catpm.config.slow_threshold
   end
 
-  test "slow_threshold_for returns kind-specific threshold" do
+  test 'slow_threshold_for returns kind-specific threshold' do
     Catpm.configure do |c|
       c.slow_threshold = 500
       c.slow_threshold_per_kind = { http: 300, job: 5000 }
@@ -73,33 +73,33 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 500, Catpm.config.slow_threshold_for(:custom) # falls back to default
   end
 
-  test "ignored? matches exact strings" do
-    Catpm.configure { |c| c.ignored_targets = ["HealthcheckController#index"] }
+  test 'ignored? matches exact strings' do
+    Catpm.configure { |c| c.ignored_targets = ['HealthcheckController#index'] }
 
-    assert Catpm.config.ignored?("HealthcheckController#index")
-    refute Catpm.config.ignored?("UsersController#index")
+    assert Catpm.config.ignored?('HealthcheckController#index')
+    assert_not Catpm.config.ignored?('UsersController#index')
   end
 
-  test "ignored? matches glob patterns" do
-    Catpm.configure { |c| c.ignored_targets = ["/assets/*"] }
+  test 'ignored? matches glob patterns' do
+    Catpm.configure { |c| c.ignored_targets = ['/assets/*'] }
 
-    assert Catpm.config.ignored?("/assets/application.css")
-    assert Catpm.config.ignored?("/assets/logo.png")
-    refute Catpm.config.ignored?("/users/1")
+    assert Catpm.config.ignored?('/assets/application.css')
+    assert Catpm.config.ignored?('/assets/logo.png')
+    assert_not Catpm.config.ignored?('/users/1')
   end
 
-  test "ignored? matches regexps" do
+  test 'ignored? matches regexps' do
     Catpm.configure { |c| c.ignored_targets = [/health/i] }
 
-    assert Catpm.config.ignored?("HealthcheckController#index")
-    assert Catpm.config.ignored?("health_check")
-    refute Catpm.config.ignored?("UsersController#index")
+    assert Catpm.config.ignored?('HealthcheckController#index')
+    assert Catpm.config.ignored?('health_check')
+    assert_not Catpm.config.ignored?('UsersController#index')
   end
 
-  test "enabled? delegates to config" do
+  test 'enabled? delegates to config' do
     assert Catpm.enabled?
 
     Catpm.configure { |c| c.enabled = false }
-    refute Catpm.enabled?
+    assert_not Catpm.enabled?
   end
 end

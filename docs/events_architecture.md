@@ -22,9 +22,9 @@ catpm already has aggregated storage (buckets + samples), a flush pipeline, and 
 ## 3. API
 
 ```ruby
-Catpm.event("spam_detected")
-Catpm.event("gpt_call")
-Catpm.event("payment_completed")
+Catpm.event('spam_detected')
+Catpm.event('gpt_call')
+Catpm.event('payment_completed')
 ```
 
 One argument — the event name. Buckets get `+1`. That's it.
@@ -32,7 +32,7 @@ One argument — the event name. Buckets get `+1`. That's it.
 Samples (for inspection of recent examples) can carry optional payload:
 
 ```ruby
-Catpm.event("spam_detected", text: message.text, pattern: "crypto")
+Catpm.event('spam_detected', text: message.text, pattern: 'crypto')
 ```
 
 Payload is stored as JSON on the sample, never queried or aggregated. It's there so you can click a recent event in the dashboard and see what happened.
@@ -234,11 +234,11 @@ Two pages total. No dimension explorer, no actor views — that's v2.
 
 ```ruby
 # Before
-Event.create!(title: "spam", payload: { text: msg.text }, user_id: user.id, chat_id: chat.id)
-Event.where(title: "spam").where(created_at: range).count
+Event.create!(title: 'spam', payload: { text: msg.text }, user_id: user.id, chat_id: chat.id)
+Event.where(title: 'spam').where(created_at: range).count
 
 # After
-Catpm.event("spam", text: msg.text)
+Catpm.event('spam', text: msg.text)
 # global count: built-in at /catpm/events/spam
 # recent examples with payload: visible on the same page
 # per-user/per-chat breakdown: v2 (dimensions)

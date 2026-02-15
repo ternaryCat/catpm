@@ -11,7 +11,7 @@ module Catpm
     end
 
     def call(env)
-      req_segments = env["catpm.segments"]
+      req_segments = env['catpm.segments']
       if req_segments
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         idx = req_segments.push_span(type: :middleware, detail: @middleware_name, started_at: started_at)

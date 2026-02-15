@@ -84,7 +84,7 @@ module Catpm
         if app_frame
           app_path = app_frame.path.to_s
           parent = {
-            type: "code",
+            type: 'code',
             detail: build_app_detail(app_frame),
             duration: duration.round(2),
             offset: offset,
@@ -123,9 +123,9 @@ module Catpm
 
       locations.each do |loc|
         path = loc.path.to_s
-        next if path.start_with?("<internal:")
-        next if path.include?("/catpm/")
-        next if path.include?("/ruby/") && !path.include?("/gems/")
+        next if path.start_with?('<internal:')
+        next if path.include?('/catpm/')
+        next if path.include?('/ruby/') && !path.include?('/gems/')
 
         leaf_frame ||= loc
 
@@ -188,22 +188,22 @@ module Catpm
     end
 
     def classify_path(path)
-      return "code" if Fingerprint.app_frame?(path)
+      return 'code' if Fingerprint.app_frame?(path)
 
       gem = extract_gem_name(path)
       case gem
-      when /\A(httpclient|net-http|faraday|httpx|typhoeus|excon|http)\z/ then "http"
-      when /\A(pg|mysql2|sqlite3|trilogy)\z/ then "sql"
-      when /\A(redis|dalli|hiredis)\z/ then "cache"
-      when /\A(aws-sdk|google-cloud|fog)\z/ then "storage"
-      when /\A(mail|net-smtp)\z/ then "mailer"
-      else "gem"
+      when /\A(httpclient|net-http|faraday|httpx|typhoeus|excon|http)\z/ then 'http'
+      when /\A(pg|mysql2|sqlite3|trilogy)\z/ then 'sql'
+      when /\A(redis|dalli|hiredis)\z/ then 'cache'
+      when /\A(aws-sdk|google-cloud|fog)\z/ then 'storage'
+      when /\A(mail|net-smtp)\z/ then 'mailer'
+      else 'gem'
       end
     end
 
     def build_app_detail(frame)
       path = frame.path.to_s
-      short = path.sub(%r{.*/app/}, "app/").sub(%r{.*/lib/}, "lib/")
+      short = path.sub(%r{.*/app/}, 'app/').sub(%r{.*/lib/}, 'lib/')
       "#{short} in #{frame.label}"
     end
 
@@ -212,7 +212,7 @@ module Catpm
       if Fingerprint.app_frame?(path)
         build_app_detail(frame)
       else
-        gem = extract_gem_name(path) || "unknown"
+        gem = extract_gem_name(path) || 'unknown'
         "#{gem}: #{frame.label}"
       end
     end

@@ -2,7 +2,7 @@
 
 module Catpm
   class EventSample < ApplicationRecord
-    self.table_name = "catpm_event_samples"
+    self.table_name = 'catpm_event_samples'
 
     validates :name, :recorded_at, presence: true
 

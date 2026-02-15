@@ -1,25 +1,25 @@
 # frozen_string_literal: true
 
-require "test_helper"
+require 'test_helper'
 
 class TDigestTest < ActiveSupport::TestCase
-  test "empty digest" do
+  test 'empty digest' do
     td = Catpm::TDigest.new
     assert td.empty?
     assert_equal 0, td.count
     assert_nil td.percentile(0.5)
   end
 
-  test "single value" do
+  test 'single value' do
     td = Catpm::TDigest.new
     td.add(42.0)
 
-    refute td.empty?
+    assert_not td.empty?
     assert_equal 1, td.count
     assert_in_delta 42.0, td.percentile(0.5), 0.01
   end
 
-  test "percentile accuracy for uniform distribution" do
+  test 'percentile accuracy for uniform distribution' do
     td = Catpm::TDigest.new
     values = (1..1000).to_a
     values.each { |v| td.add(v) }
@@ -29,7 +29,7 @@ class TDigestTest < ActiveSupport::TestCase
     assert_in_delta 990, td.percentile(0.99), 15   # p99 ~ 990
   end
 
-  test "percentile accuracy for normal-like distribution" do
+  test 'percentile accuracy for normal-like distribution' do
     td = Catpm::TDigest.new
     # Simulate a skewed response time distribution
     800.times { td.add(rand(50..200)) }   # Most requests: 50-200ms
@@ -45,18 +45,18 @@ class TDigestTest < ActiveSupport::TestCase
     assert p50 < 300, "p50 (#{p50}) should be under 300ms for this distribution"
   end
 
-  test "percentile boundaries" do
+  test 'percentile boundaries' do
     td = Catpm::TDigest.new
     [10, 20, 30, 40, 50].each { |v| td.add(v) }
 
     p0 = td.percentile(0.0)
     p100 = td.percentile(1.0)
 
-    assert p0 >= 10, "p0 should be >= min value"
-    assert p100 <= 50, "p100 should be <= max value"
+    assert p0 >= 10, 'p0 should be >= min value'
+    assert p100 <= 50, 'p100 should be <= max value'
   end
 
-  test "merge two digests" do
+  test 'merge two digests' do
     td1 = Catpm::TDigest.new
     td2 = Catpm::TDigest.new
 
@@ -69,7 +69,7 @@ class TDigestTest < ActiveSupport::TestCase
     assert_in_delta 500, td1.percentile(0.5), 20
   end
 
-  test "merge with empty digest" do
+  test 'merge with empty digest' do
     td = Catpm::TDigest.new
     td.add(42)
 
@@ -80,7 +80,7 @@ class TDigestTest < ActiveSupport::TestCase
     assert_equal 1, td.count
   end
 
-  test "serialize and deserialize roundtrip" do
+  test 'serialize and deserialize roundtrip' do
     td = Catpm::TDigest.new
     100.times { |i| td.add(i * 10) }
 
@@ -94,18 +94,18 @@ class TDigestTest < ActiveSupport::TestCase
     assert_in_delta td.percentile(0.95), restored.percentile(0.95), 1.0
   end
 
-  test "deserialize nil or empty returns empty digest" do
+  test 'deserialize nil or empty returns empty digest' do
     assert Catpm::TDigest.deserialize(nil).empty?
-    assert Catpm::TDigest.deserialize("").empty?
+    assert Catpm::TDigest.deserialize('').empty?
   end
 
-  test "add returns self for chaining" do
+  test 'add returns self for chaining' do
     td = Catpm::TDigest.new
     result = td.add(1)
     assert_same td, result
   end
 
-  test "percentile raises for invalid input" do
+  test 'percentile raises for invalid input' do
     td = Catpm::TDigest.new
     td.add(1)
 

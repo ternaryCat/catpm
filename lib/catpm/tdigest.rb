@@ -36,7 +36,7 @@ module Catpm
     end
 
     def percentile(p)
-      raise ArgumentError, "percentile must be between 0 and 1" unless (0..1).cover?(p)
+      raise ArgumentError, 'percentile must be between 0 and 1' unless (0..1).cover?(p)
       return nil if @count == 0
 
       flush_buffer unless @buffer.empty?
@@ -87,15 +87,15 @@ module Catpm
       flush_buffer unless @buffer.empty?
 
       parts = []
-      parts << [@compression].pack("E")      # f64 little-endian
-      parts << [@count].pack("Q<")            # u64 little-endian
-      parts << [@centroids.size].pack("V")    # u32 little-endian
-      parts << [@min].pack("E")               # f64
-      parts << [@max].pack("E")               # f64
+      parts << [@compression].pack('E')      # f64 little-endian
+      parts << [@count].pack('Q<')            # u64 little-endian
+      parts << [@centroids.size].pack('V')    # u32 little-endian
+      parts << [@min].pack('E')               # f64
+      parts << [@max].pack('E')               # f64
 
       @centroids.each do |c|
-        parts << [c.mean].pack("E")           # f64
-        parts << [c.weight.to_i].pack("V")    # u32
+        parts << [c.mean].pack('E')           # f64
+        parts << [c.weight.to_i].pack('V')    # u32
       end
 
       parts.join.b
@@ -107,11 +107,11 @@ module Catpm
       blob = blob.b
       offset = 0
 
-      compression = blob[offset, 8].unpack1("E"); offset += 8
-      count = blob[offset, 8].unpack1("Q<");       offset += 8
-      n = blob[offset, 4].unpack1("V");            offset += 4
-      min = blob[offset, 8].unpack1("E");          offset += 8
-      max = blob[offset, 8].unpack1("E");          offset += 8
+      compression = blob[offset, 8].unpack1('E'); offset += 8
+      count = blob[offset, 8].unpack1('Q<');       offset += 8
+      n = blob[offset, 4].unpack1('V');            offset += 4
+      min = blob[offset, 8].unpack1('E');          offset += 8
+      max = blob[offset, 8].unpack1('E');          offset += 8
 
       digest = new(compression: compression.to_i)
       digest.instance_variable_set(:@count, count)
@@ -120,8 +120,8 @@ module Catpm
 
       centroids = []
       n.times do
-        mean = blob[offset, 8].unpack1("E");   offset += 8
-        weight = blob[offset, 4].unpack1("V");  offset += 4
+        mean = blob[offset, 8].unpack1('E');   offset += 8
+        weight = blob[offset, 4].unpack1('V');  offset += 4
         centroids << Centroid.new(mean, weight)
       end
       digest.instance_variable_set(:@centroids, centroids)

@@ -4,13 +4,13 @@ module Catpm
   class Engine < ::Rails::Engine
     isolate_namespace Catpm
 
-    initializer "catpm.migrations" do |app|
-      config.paths["db/migrate"].expanded.each do |path|
-        app.config.paths["db/migrate"] << path unless app.config.paths["db/migrate"].include?(path)
+    initializer 'catpm.migrations' do |app|
+      config.paths['db/migrate'].expanded.each do |path|
+        app.config.paths['db/migrate'] << path unless app.config.paths['db/migrate'].include?(path)
       end
     end
 
-    initializer "catpm.middleware" do |app|
+    initializer 'catpm.middleware' do |app|
       app.middleware.insert_before 0, Catpm::Middleware
     end
 
@@ -22,7 +22,7 @@ module Catpm
 
         if Catpm.config.instrument_middleware_stack
           app = Rails.application
-          names = app.middleware.map { |m| m.name }.compact.reject { |n| n.start_with?("Catpm::") }
+          names = app.middleware.filter_map { |m| m.name }.reject { |n| n.start_with?('Catpm::') }
           names.reverse_each do |name|
             app.middleware.insert_before(name, Catpm::MiddlewareProbe, name)
           rescue ArgumentError, RuntimeError

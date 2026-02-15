@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "concurrent"
+require 'concurrent'
 
 module Catpm
   class Flusher
@@ -96,9 +96,9 @@ module Catpm
 
       # Pre-load existing random sample counts per endpoint for filling phase
       @random_sample_counts = {}
-      Catpm::Sample.where(sample_type: "random")
+      Catpm::Sample.where(sample_type: 'random')
         .joins(:bucket)
-        .group("catpm_buckets.kind", "catpm_buckets.target", "catpm_buckets.operation")
+        .group('catpm_buckets.kind', 'catpm_buckets.target', 'catpm_buckets.operation')
         .count
         .each { |(kind, target, op), cnt| @random_sample_counts[[ kind, target, op ]] = cnt }
 
@@ -195,20 +195,20 @@ module Catpm
     end
 
     def determine_sample_type(event)
-      return "error" if event.error?
+      return 'error' if event.error?
 
       threshold = Catpm.config.slow_threshold_for(event.kind.to_sym)
-      return "slow" if event.duration >= threshold
+      return 'slow' if event.duration >= threshold
 
       # Always sample if endpoint has few random samples (filling phase)
       endpoint_key = [ event.kind, event.target, event.operation ]
       existing_random = @random_sample_counts[endpoint_key] || 0
       if existing_random < Catpm.config.max_random_samples_per_endpoint
         @random_sample_counts[endpoint_key] = existing_random + 1
-        return "random"
+        return 'random'
       end
 
-      return "random" if rand(Catpm.config.random_sample_rate) == 0
+      return 'random' if rand(Catpm.config.random_sample_rate) == 0
 
       nil
     end
@@ -221,13 +221,13 @@ module Catpm
           .where(catpm_buckets: { kind: kind, target: target, operation: operation })
 
         case sample[:sample_type]
-        when "random"
-          existing = endpoint_samples.where(sample_type: "random")
+        when 'random'
+          existing = endpoint_samples.where(sample_type: 'random')
           if existing.count >= Catpm.config.max_random_samples_per_endpoint
             existing.order(recorded_at: :asc).first.destroy
           end
-        when "slow"
-          existing = endpoint_samples.where(sample_type: "slow")
+        when 'slow'
+          existing = endpoint_samples.where(sample_type: 'slow')
           if existing.count >= Catpm.config.max_slow_samples_per_endpoint
             weakest = existing.order(duration: :asc).first
             if sample[:duration] > weakest.duration

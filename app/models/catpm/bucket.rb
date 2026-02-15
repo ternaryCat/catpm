@@ -2,9 +2,9 @@
 
 module Catpm
   class Bucket < ApplicationRecord
-    self.table_name = "catpm_buckets"
+    self.table_name = 'catpm_buckets'
 
-    has_many :samples, class_name: "Catpm::Sample", foreign_key: :bucket_id, dependent: :delete_all
+    has_many :samples, class_name: 'Catpm::Sample', foreign_key: :bucket_id, dependent: :delete_all
 
     validates :kind, :target, :bucket_start, presence: true
 
