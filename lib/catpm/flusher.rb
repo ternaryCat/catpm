@@ -44,12 +44,12 @@ module Catpm
       events = @buffer.drain
       return if events.empty?
 
-      perf_events, custom_events = events.partition { |e| e.is_a?(Catpm::Event) }
+      ActiveRecord::Base.connection_pool.with_connection do
+        perf_events, custom_events = events.partition { |e| e.is_a?(Catpm::Event) }
 
-      if perf_events.any?
-        buckets, samples, errors = aggregate(perf_events)
+        if perf_events.any?
+          buckets, samples, errors = aggregate(perf_events)
 
-        ActiveRecord::Base.connection_pool.with_connection do
           adapter = Catpm::Adapter.current
           adapter.persist_buckets(buckets)
 
@@ -58,12 +58,10 @@ module Catpm
           adapter.persist_samples(samples, bucket_map)
           adapter.persist_errors(errors)
         end
-      end
 
-      if custom_events.any?
-        event_buckets, event_samples = aggregate_custom_events(custom_events)
+        if custom_events.any?
+          event_buckets, event_samples = aggregate_custom_events(custom_events)
 
-        ActiveRecord::Base.connection_pool.with_connection do
           adapter = Catpm::Adapter.current
           adapter.persist_event_buckets(event_buckets)
           adapter.persist_event_samples(event_samples)
@@ -75,8 +73,10 @@ module Catpm
 
       maybe_cleanup
     rescue => e
+      events&.each { |ev| @buffer.push(ev) }
       @circuit.record_failure
       Catpm.config.error_handler.call(e)
+      Rails.logger.error("[catpm] flush error: #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
     end
 
     def reset!
