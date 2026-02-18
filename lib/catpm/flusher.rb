@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'concurrent'
-
 module Catpm
   class Flusher
     attr_reader :running
@@ -13,26 +11,29 @@ module Catpm
       @circuit = CircuitBreaker.new
       @last_cleanup_at = Time.now
       @running = false
-      @timer = nil
+      @thread = nil
     end
 
     def start
       return if @running
 
       @running = true
-      @timer = Concurrent::TimerTask.new(
-        execution_interval: effective_interval,
-        run_now: false
-      ) { flush_cycle }
-      @timer.execute
+      @thread = Thread.new do
+        while @running
+          sleep(effective_interval)
+          flush_cycle if @running
+        end
+      rescue => e
+        Catpm.config.error_handler.call(e)
+        retry if @running
+      end
     end
 
     def stop(timeout: Catpm.config.shutdown_timeout)
       return unless @running
 
       @running = false
-      @timer&.shutdown
-      @timer&.wait_for_termination(timeout)
+      @thread&.join(timeout)
       flush_cycle # Final flush
     end
 
