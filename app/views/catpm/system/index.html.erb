@@ -39,7 +39,7 @@
     <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="8" rx="8" ry="4"/><path d="M6 8v12c0 2.2 3.58 4 8 4s8-1.8 8-4V8"/><path d="M6 14c0 2.2 3.58 4 8 4s8-1.8 8-4"/></svg></div>
     <div class="node-label">Database</div>
     <div class="node-value"><%= @bucket_count %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">buckets</span></div>
-    <div class="node-detail">Aggregated stats are stored as time buckets, plus <%= @sample_count %> detailed samples and <%= @error_count %> error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{(@config.retention_period / 1.day).to_i} days." : "No data yet." %></div>
+    <div class="node-detail">Aggregated stats are stored as time buckets, plus <%= @sample_count %> detailed samples and <%= @error_count %> error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{@config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever"}." : "No data yet." %></div>
   </div>
 </div>
 
@@ -84,9 +84,9 @@
     <tr><td>Shutdown Timeout</td><td class="mono"><%= @config.shutdown_timeout %>s</td></tr>
 
     <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Retention & Downsampling</td></tr>
-    <tr><td>Retention Period</td><td class="mono"><%= (@config.retention_period / 1.day).to_i %> days</td></tr>
+    <tr><td>Retention Period</td><td class="mono"><%= @config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever" %></td></tr>
     <tr><td>Cleanup Interval</td><td class="mono"><%= (@config.cleanup_interval / 1.minute).to_i %> min</td></tr>
-    <tr><td>Bucket Sizes</td><td class="mono">recent: <%= (@config.bucket_sizes[:recent] / 1.minute).to_i %>min, medium: <%= (@config.bucket_sizes[:medium] / 1.minute).to_i %>min, old: <%= (@config.bucket_sizes[:old] / 1.hour).to_i %>h</td></tr>
+    <tr><td>Bucket Sizes</td><td class="mono"><%= @config.bucket_sizes.map { |k, v| "#{k}: #{v < 1.hour ? "#{(v / 1.minute).to_i}min" : v < 1.day ? "#{(v / 1.hour).to_i}h" : "#{(v / 1.day).to_i}d"}" }.join(", ") %></td></tr>
 
     <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Error Tracking</td></tr>
     <tr><td>Max Error Contexts</td><td class="mono"><%= @config.max_error_contexts %></td></tr>
