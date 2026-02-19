@@ -39,7 +39,8 @@ module Catpm
                   :backtrace_lines,
                   :shutdown_timeout,
                   :events_enabled,
-                  :events_max_samples_per_name
+                  :events_max_samples_per_name,
+                  :track_own_requests
 
     def initialize
       @enabled = true
@@ -80,6 +81,7 @@ module Catpm
       @shutdown_timeout = 5 # seconds
       @events_enabled = false
       @events_max_samples_per_name = 20
+      @track_own_requests = false
     end
 
     def slow_threshold_for(kind)
