@@ -41,7 +41,7 @@ module Catpm
       # Samples table: 20 most recent linked by fingerprint
       @samples = Catpm::Sample.where(error_fingerprint: @error.fingerprint)
                               .order(recorded_at: :desc)
-                              .limit(20)
+                              .limit(Catpm.config.max_error_samples_per_fingerprint)
 
       # Fallback: match error samples by recorded_at from contexts
       if @samples.empty? && @contexts.any?
@@ -51,7 +51,7 @@ module Catpm
         if occurred_times.any?
           @samples = Catpm::Sample.where(sample_type: 'error', kind: @error.kind, recorded_at: occurred_times)
                                   .order(recorded_at: :desc)
-                                  .limit(20)
+                                  .limit(Catpm.config.max_error_samples_per_fingerprint)
         end
       end
 

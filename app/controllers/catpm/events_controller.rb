@@ -81,7 +81,7 @@ module Catpm
       @chart_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
 
       # Recent samples
-      @samples = Catpm::EventSample.by_name(@name).order(recorded_at: :desc).limit(20)
+      @samples = Catpm::EventSample.by_name(@name).order(recorded_at: :desc).limit(Catpm.config.events_max_samples_per_name)
 
       @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
