@@ -10,16 +10,10 @@ module Catpm
         initialize_flusher
         apply_patches
 
-        # Always start the flusher in the current process.
-        # For forking servers, also register post-fork hooks
-        # so each worker restarts its own flusher.
+        # Start the flusher in the current process.
+        # For forking servers (Puma, Passenger, Unicorn, etc.),
+        # the middleware detects fork via PID and restarts automatically.
         Catpm.flusher&.start
-
-        if defined?(::PhusionPassenger)
-          register_passenger_hook
-        elsif defined?(::Pitchfork)
-          register_pitchfork_hook
-        end
 
         register_shutdown_hooks
       end
@@ -56,20 +50,6 @@ module Catpm
           interval: Catpm.config.flush_interval,
           jitter: Catpm.config.flush_jitter
         )
-      end
-
-      def register_passenger_hook
-        flusher = Catpm.flusher
-        ::PhusionPassenger.on_event(:starting_worker_process) do |forked|
-          flusher&.start if forked
-        end
-      end
-
-      def register_pitchfork_hook
-        flusher = Catpm.flusher
-        ::Pitchfork.configure do |server|
-          server.after_worker_fork { flusher&.start }
-        end
       end
     end
   end

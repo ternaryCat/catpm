@@ -12,28 +12,54 @@ module Catpm
       @last_cleanup_at = Time.now
       @running = false
       @thread = nil
+      @pid = nil
+      @mutex = Mutex.new
     end
 
     def start
-      return if @running
-
-      @running = true
-      @thread = Thread.new do
-        while @running
-          sleep(effective_interval)
-          flush_cycle if @running
+      @mutex.synchronize do
+        # After fork(), threads are dead but @running may still be true
+        if @pid && @pid != Process.pid
+          @running = false
+          @thread = nil
         end
-      rescue => e
-        Catpm.config.error_handler.call(e)
-        retry if @running
+
+        return if @running
+
+        @running = true
+        @pid = Process.pid
+        @thread = Thread.new do
+          while @running
+            sleep(effective_interval)
+            flush_cycle if @running
+          end
+        rescue => e
+          Catpm.config.error_handler.call(e)
+          retry if @running
+        end
       end
     end
 
-    def stop(timeout: Catpm.config.shutdown_timeout)
-      return unless @running
+    # Cheap check called from middleware on every request.
+    # Detects fork (Puma, Unicorn, etc.) and restarts the thread.
+    def ensure_running!
+      return if @running && @thread&.alive? && @pid == Process.pid
 
-      @running = false
-      @thread&.join(timeout)
+      start
+    end
+
+    def stop(timeout: Catpm.config.shutdown_timeout)
+      thread = nil
+
+      @mutex.synchronize do
+        return unless @running
+
+        @running = false
+        thread = @thread
+        @thread = nil
+      end
+
+      thread&.join(timeout)
       flush_cycle # Final flush
     end
 
@@ -45,26 +71,28 @@ module Catpm
       return if events.empty?
 
       ActiveRecord::Base.connection_pool.with_connection do
-        perf_events, custom_events = events.partition { |e| e.is_a?(Catpm::Event) }
+        ActiveRecord::Base.transaction do
+          perf_events, custom_events = events.partition { |e| e.is_a?(Catpm::Event) }
 
-        if perf_events.any?
-          buckets, samples, errors = aggregate(perf_events)
+          if perf_events.any?
+            buckets, samples, errors = aggregate(perf_events)
 
-          adapter = Catpm::Adapter.current
-          adapter.persist_buckets(buckets)
+            adapter = Catpm::Adapter.current
+            adapter.persist_buckets(buckets)
 
-          bucket_map = build_bucket_map(buckets)
-          samples = rotate_samples(samples)
-          adapter.persist_samples(samples, bucket_map)
-          adapter.persist_errors(errors)
-        end
+            bucket_map = build_bucket_map(buckets)
+            samples = rotate_samples(samples)
+            adapter.persist_samples(samples, bucket_map)
+            adapter.persist_errors(errors)
+          end
 
-        if custom_events.any?
-          event_buckets, event_samples = aggregate_custom_events(custom_events)
+          if custom_events.any?
+            event_buckets, event_samples = aggregate_custom_events(custom_events)
 
-          adapter = Catpm::Adapter.current
-          adapter.persist_event_buckets(event_buckets)
-          adapter.persist_event_samples(event_samples)
+            adapter = Catpm::Adapter.current
+            adapter.persist_event_buckets(event_buckets)
+            adapter.persist_event_samples(event_samples)
+          end
         end
       end
 

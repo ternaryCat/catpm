@@ -9,6 +9,8 @@ module Catpm
     def call(env)
       return @app.call(env) unless Catpm.enabled?
 
+      Catpm.flusher&.ensure_running!
+
       env['catpm.request_start'] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       if Catpm.config.instrument_segments
