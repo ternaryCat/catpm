@@ -45,7 +45,7 @@ module Catpm
     end
 
     def success?
-      !error? && (status.nil? || (200..399).cover?(status.to_i))
+      !error?
     end
 
     def bucket_start

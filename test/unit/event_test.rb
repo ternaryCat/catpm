@@ -49,10 +49,11 @@ class EventTest < ActiveSupport::TestCase
   end
 
   test 'success? with various status codes' do
+    # success? is solely based on error? (presence of error_class), not status code
     assert Catpm::Event.new(kind: :http, target: 't', status: 200).success?
-    assert Catpm::Event.new(kind: :http, target: 't', status: 301).success?
-    assert_not Catpm::Event.new(kind: :http, target: 't', status: 404).success?
-    assert_not Catpm::Event.new(kind: :http, target: 't', status: 500).success?
+    assert Catpm::Event.new(kind: :http, target: 't', status: 404).success?
+    assert Catpm::Event.new(kind: :http, target: 't', status: 500).success?
+    assert_not Catpm::Event.new(kind: :http, target: 't', error_class: 'RuntimeError').success?
   end
 
   test 'operation defaults to empty string for nil' do

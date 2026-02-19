@@ -20,6 +20,7 @@ Catpm.configure do |config|
   config.instrument_http = true              # Track HTTP requests (default: true)
   config.instrument_jobs = false             # Track ActiveJob (default: false)
   config.instrument_segments = true          # Track SQL/view/cache segments (default: true)
+  # config.track_own_requests = false           # Track catpm dashboard requests (default: false)
   # config.instrument_net_http = false         # Patch Net::HTTP for outbound tracking (default: false)
   # config.instrument_middleware_stack = false # Decompose middleware into per-middleware segments (default: false)
   # config.max_segments_per_request = 50       # Cap segments per request (keeps slowest)

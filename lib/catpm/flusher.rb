@@ -155,10 +155,20 @@ module Catpm
         # TDigest
         bucket[:tdigest].add(event.duration)
 
+        # Compute error fingerprint (used for both samples and error grouping)
+        error_fp = nil
+        if event.error?
+          error_fp = Catpm::Fingerprint.generate(
+            kind: event.kind,
+            error_class: event.error_class,
+            backtrace: event.backtrace
+          )
+        end
+
         # Collect samples
         sample_type = determine_sample_type(event)
         if sample_type
-          samples << {
+          sample_hash = {
             bucket_key: key,
             kind: event.kind,
             sample_type: sample_type,
@@ -166,29 +176,27 @@ module Catpm
             duration: event.duration,
             context: event.context
           }
+          sample_hash[:error_fingerprint] = error_fp if error_fp
+          samples << sample_hash
         end
 
         # Error grouping
-        if event.error?
-          fp = Catpm::Fingerprint.generate(
-            kind: event.kind,
-            error_class: event.error_class,
-            backtrace: event.backtrace
-          )
-
-          error = error_groups[fp] ||= {
-            fingerprint: fp,
+        if error_fp
+          error = error_groups[error_fp] ||= {
+            fingerprint: error_fp,
             kind: event.kind,
             error_class: event.error_class,
             message: event.error_message,
             occurrences_count: 0,
             first_occurred_at: event.started_at,
             last_occurred_at: event.started_at,
-            new_contexts: []
+            new_contexts: [],
+            occurrence_times: []
           }
 
           error[:occurrences_count] += 1
           error[:last_occurred_at] = [ error[:last_occurred_at], event.started_at ].max
+          error[:occurrence_times] << event.started_at
 
           if error[:new_contexts].size < Catpm.config.max_error_contexts
             error[:new_contexts] << build_error_context(event)
@@ -265,6 +273,14 @@ module Catpm
               sample[:_skip] = true
             end
           end
+        when 'error'
+          fp = sample[:error_fingerprint]
+          if fp
+            existing = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
+            if existing.count >= Catpm.config.max_error_samples_per_fingerprint
+              existing.order(recorded_at: :asc).first.destroy
+            end
+          end
         end
       end
 
@@ -276,7 +292,11 @@ module Catpm
         occurred_at: event.started_at.iso8601,
         kind: event.kind,
         operation: event.context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
-        backtrace: (event.backtrace || []).first(Catpm.config.backtrace_lines),
+        backtrace: begin
+          bt = event.backtrace || []
+          limit = Catpm.config.backtrace_lines
+          limit ? bt.first(limit) : bt
+        end,
         duration: event.duration,
         status: event.status
       }

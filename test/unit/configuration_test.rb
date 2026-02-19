@@ -36,7 +36,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 60, config.circuit_breaker_recovery_timeout
     assert_equal 5_000, config.sqlite_busy_timeout
     assert_equal 100, config.persistence_batch_size
-    assert_equal 10, config.backtrace_lines
+    assert_nil config.backtrace_lines
     assert_equal 5, config.shutdown_timeout
   end
 

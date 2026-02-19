@@ -35,6 +35,48 @@ module Catpm
       @error = Catpm::ErrorRecord.find(params[:id])
       @contexts = @error.parsed_contexts
       @active_error_count = Catpm::ErrorRecord.unresolved.count
+
+      @range, period, bucket_seconds = helpers.parse_range(params[:range] || '24h')
+
+      # Samples table: 20 most recent linked by fingerprint
+      @samples = Catpm::Sample.where(error_fingerprint: @error.fingerprint)
+                              .order(recorded_at: :desc)
+                              .limit(20)
+
+      # Fallback: match error samples by recorded_at from contexts
+      if @samples.empty? && @contexts.any?
+        occurred_times = @contexts.filter_map { |c|
+          Time.parse(c['occurred_at'] || c[:occurred_at]) rescue nil
+        }
+        if occurred_times.any?
+          @samples = Catpm::Sample.where(sample_type: 'error', kind: @error.kind, recorded_at: occurred_times)
+                                  .order(recorded_at: :desc)
+                                  .limit(20)
+        end
+      end
+
+      # Chart from occurrence_buckets (multi-resolution, no dependency on samples)
+      ob = @error.parsed_occurrence_buckets
+
+      # Pick resolution: minute for short ranges, hour for medium, day for long
+      resolution = case @range
+                   when '1h', '6h', '24h' then 'm'
+                   when '1w', '2w', '1m' then 'h'
+                   else 'd'
+      end
+
+      slots = {}
+      cutoff = period.ago.to_i
+      (ob[resolution] || {}).each do |ts_str, count|
+        ts = ts_str.to_i
+        next if ts < cutoff
+        slot_key = (ts / bucket_seconds) * bucket_seconds
+        slots[slot_key] = (slots[slot_key] || 0) + count
+      end
+
+      now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds
+      @chart_data = 60.times.map { |i| slots[now_slot - (59 - i) * bucket_seconds] || 0 }
+      @chart_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
     end
 
     def resolve

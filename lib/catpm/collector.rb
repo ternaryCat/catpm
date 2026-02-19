@@ -95,6 +95,26 @@ module Catpm
 
           # Use full request duration (including middleware) for the event
           duration = total_request_duration
+
+          # Append error marker segment inside the controller
+          if payload[:exception]
+            error_parent = ctrl_idx || 0
+            error_offset = if ctrl_idx
+              ctrl = segments[ctrl_idx]
+              ((ctrl[:offset] || 0) + (ctrl[:duration] || 0)).round(2)
+            else
+              duration.round(2)
+            end
+
+            context[:segments] << {
+              type: 'error',
+              detail: "#{payload[:exception].first}: #{payload[:exception].last}".truncate(200),
+              source: payload[:exception_object]&.backtrace&.first,
+              duration: 0,
+              offset: error_offset,
+              parent_index: error_parent
+            }
+          end
         end
 
         ev = Event.new(
@@ -204,6 +224,26 @@ module Catpm
 
           segment_data[:segment_summary]&.each do |k, v|
             metadata[k] = v
+          end
+
+          # Append error marker segment inside the controller
+          if error
+            error_parent = ctrl_idx || 0
+            error_offset = if ctrl_idx
+              ctrl = segments[ctrl_idx]
+              ((ctrl[:offset] || 0) + (ctrl[:duration] || 0)).round(2)
+            else
+              duration.round(2)
+            end
+
+            context[:segments] << {
+              type: 'error',
+              detail: "#{error.class.name}: #{error.message}".truncate(200),
+              source: error.backtrace&.first,
+              duration: 0,
+              offset: error_offset,
+              parent_index: error_parent
+            }
           end
         end
 

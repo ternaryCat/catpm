@@ -116,16 +116,22 @@ module Catpm
                 merged_contexts = merge_contexts(
                   existing.parsed_contexts, error_data[:new_contexts]
                 )
+                merged_buckets = merge_occurrence_buckets(
+                  existing.occurrence_buckets, error_data[:occurrence_times]
+                )
 
                 attrs = {
                   occurrences_count: existing.occurrences_count + error_data[:occurrences_count],
                   last_occurred_at: [existing.last_occurred_at, error_data[:last_occurred_at]].max,
-                  contexts: merged_contexts.to_json
+                  contexts: merged_contexts.to_json,
+                  occurrence_buckets: merged_buckets.to_json
                 }
                 attrs[:resolved_at] = nil if existing.resolved?
 
                 existing.update!(attrs)
               else
+                initial_buckets = merge_occurrence_buckets(nil, error_data[:occurrence_times])
+
                 Catpm::ErrorRecord.create!(
                   fingerprint: error_data[:fingerprint],
                   kind: error_data[:kind],
@@ -134,7 +140,8 @@ module Catpm
                   occurrences_count: error_data[:occurrences_count],
                   first_occurred_at: error_data[:first_occurred_at],
                   last_occurred_at: error_data[:last_occurred_at],
-                  contexts: error_data[:new_contexts].to_json
+                  contexts: error_data[:new_contexts].to_json,
+                  occurrence_buckets: initial_buckets.to_json
                 )
               end
             end

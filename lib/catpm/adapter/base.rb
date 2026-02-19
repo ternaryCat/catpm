@@ -32,7 +32,8 @@ module Catpm
                 sample_type: sample_data[:sample_type],
                 recorded_at: sample_data[:recorded_at],
                 duration: sample_data[:duration],
-                context: sample_data[:context]
+                context: sample_data[:context],
+                error_fingerprint: sample_data[:error_fingerprint]
               }
             end
 
@@ -68,7 +69,48 @@ module Catpm
         combined.last(Catpm.config.max_error_contexts)
       end
 
+      # Merge new occurrence timestamps into the multi-resolution bucket structure.
+      # Structure: { "m" => {epoch => count}, "h" => {epoch => count}, "d" => {epoch => count} }
+      # - "m" (minute): kept for 48 hours
+      # - "h" (hour): kept for 90 days
+      # - "d" (day): kept for 2 years
+      def merge_occurrence_buckets(existing, new_times)
+        buckets = parse_occurrence_buckets(existing)
+
+        (new_times || []).each do |t|
+          ts = t.to_i
+          m_key = ((ts / 60) * 60).to_s
+          h_key = ((ts / 3600) * 3600).to_s
+          d_key = ((ts / 86400) * 86400).to_s
+
+          buckets['m'][m_key] = (buckets['m'][m_key] || 0) + 1
+          buckets['h'][h_key] = (buckets['h'][h_key] || 0) + 1
+          buckets['d'][d_key] = (buckets['d'][d_key] || 0) + 1
+        end
+
+        # Compact old entries
+        now = Time.current.to_i
+        cutoff_m = now - 48 * 3600
+        cutoff_h = now - 90 * 86400
+        cutoff_d = now - 2 * 365 * 86400
+
+        buckets['m'].reject! { |k, _| k.to_i < cutoff_m }
+        buckets['h'].reject! { |k, _| k.to_i < cutoff_h }
+        buckets['d'].reject! { |k, _| k.to_i < cutoff_d }
+
+        buckets
+      end
+
       private
+
+      def parse_occurrence_buckets(value)
+        raw = parse_json(value)
+        {
+          'm' => (raw['m'].is_a?(Hash) ? raw['m'] : {}),
+          'h' => (raw['h'].is_a?(Hash) ? raw['h'] : {}),
+          'd' => (raw['d'].is_a?(Hash) ? raw['d'] : {})
+        }
+      end
 
       def parse_json(value)
         case value

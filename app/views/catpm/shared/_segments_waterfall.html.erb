@@ -131,7 +131,11 @@
             </td>
             <td>
               <div class="bar-container">
-                <div class="bar-fill" style="margin-left:<%= left_pct %>%; width:<%= width_pct %>%; background:<%= bar_color %>"></div>
+                <% if type == 'error' %>
+                  <div style="position:absolute; left:<%= left_pct %>%; top:2px; bottom:2px; width:3px; background:#dc2626; border-radius:2px"></div>
+                <% else %>
+                  <div class="bar-fill" style="margin-left:<%= left_pct %>%; width:<%= width_pct %>%; background:<%= bar_color %>"></div>
+                <% end %>
               </div>
             </td>
           </tr>

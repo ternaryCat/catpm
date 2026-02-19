@@ -7,14 +7,14 @@ module Catpm
       'sql' => '#b8e4c6', 'view' => '#e4d4f4', 'cache' => '#fdd8b5',
       'http' => '#f9c4c0', 'mailer' => '#e4d4f4', 'storage' => '#fdd8b5',
       'custom' => '#dde2e8', 'code' => '#c8daf0', 'gem' => '#f0e0f0', 'other' => '#e8e8e8', 'controller' => '#b6d9f7',
-      'middleware' => '#f0dfa0', 'request' => '#b6d9f7'
+      'middleware' => '#f0dfa0', 'request' => '#b6d9f7', 'error' => '#fca5a5'
     }.freeze
 
     SEGMENT_TEXT_COLORS = {
       'sql' => '#1a7f37', 'view' => '#6639a6', 'cache' => '#953800',
       'http' => '#a1110a', 'mailer' => '#6639a6', 'storage' => '#953800',
       'custom' => '#4b5563', 'code' => '#3b5998', 'gem' => '#7b3f9e', 'other' => '#9ca3af', 'controller' => '#0550ae',
-      'middleware' => '#7c5c00', 'request' => '#0550ae'
+      'middleware' => '#7c5c00', 'request' => '#0550ae', 'error' => '#991b1b'
     }.freeze
 
     BADGE_CLASSES = {
@@ -32,7 +32,7 @@ module Catpm
       'sql' => 'SQL Queries', 'view' => 'View Renders', 'cache' => 'Cache Ops',
       'http' => 'HTTP Calls', 'mailer' => 'Mailer', 'storage' => 'Storage',
       'custom' => 'Custom', 'code' => 'App Code', 'gem' => 'Gems', 'other' => 'Untracked',
-      'controller' => 'Controller', 'middleware' => 'Middleware', 'request' => 'Request'
+      'controller' => 'Controller', 'middleware' => 'Middleware', 'request' => 'Request', 'error' => 'Error'
     }.freeze
 
     RANGES = {

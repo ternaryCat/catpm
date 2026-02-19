@@ -31,6 +31,7 @@ module Catpm
                   :random_sample_rate,
                   :max_random_samples_per_endpoint,
                   :max_slow_samples_per_endpoint,
+                  :max_error_samples_per_fingerprint,
                   :cleanup_interval,
                   :circuit_breaker_failure_threshold,
                   :circuit_breaker_recovery_timeout,
@@ -72,12 +73,13 @@ module Catpm
       @random_sample_rate = 20
       @max_random_samples_per_endpoint = 5
       @max_slow_samples_per_endpoint = 5
+      @max_error_samples_per_fingerprint = 20
       @cleanup_interval = 1.hour
       @circuit_breaker_failure_threshold = 5
       @circuit_breaker_recovery_timeout = 60 # seconds
       @sqlite_busy_timeout = 5_000 # milliseconds
       @persistence_batch_size = 100
-      @backtrace_lines = 10
+      @backtrace_lines = nil
       @shutdown_timeout = 5 # seconds
       @events_enabled = false
       @events_max_samples_per_name = 20

@@ -12,6 +12,7 @@ module Catpm
     scope :slow, -> { where(sample_type: 'slow') }
     scope :errors, -> { where(sample_type: 'error') }
     scope :recent, ->(period = 1.hour) { where(recorded_at: period.ago..) }
+    scope :for_error, ->(fingerprint) { where(error_fingerprint: fingerprint) }
 
     def parsed_context
       case context

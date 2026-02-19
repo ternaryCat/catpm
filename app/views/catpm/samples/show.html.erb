@@ -28,6 +28,10 @@
   <span class="mono"><%= format_duration(@sample.duration) %></span>
   <span class="sep">&middot;</span>
   <span class="text-muted"><%= time_with_tooltip(@sample.recorded_at) %></span>
+  <% if @error_record %>
+    <span class="sep">&middot;</span>
+    <a href="<%= catpm.error_path(@error_record) %>" class="badge badge-error" style="text-decoration:none">Error: <%= @error_record.error_class %></a>
+  <% end %>
 </div>
 
 <%# ─── Request Context + Full JSON side by side ─── %>

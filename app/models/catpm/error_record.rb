@@ -33,5 +33,20 @@ module Catpm
     rescue JSON::ParserError
       []
     end
+
+    def parsed_occurrence_buckets
+      raw = case occurrence_buckets
+            when Hash then occurrence_buckets
+            when String then JSON.parse(occurrence_buckets)
+            else {}
+      end
+      {
+        'm' => (raw['m'].is_a?(Hash) ? raw['m'] : {}),
+        'h' => (raw['h'].is_a?(Hash) ? raw['h'] : {}),
+        'd' => (raw['d'].is_a?(Hash) ? raw['d'] : {})
+      }
+    rescue JSON::ParserError
+      { 'm' => {}, 'h' => {}, 'd' => {} }
+    end
   end
 end

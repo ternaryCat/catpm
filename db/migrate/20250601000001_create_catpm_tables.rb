@@ -32,10 +32,12 @@ class CreateCatpmTables < ActiveRecord::Migration[8.0]
       t.datetime :recorded_at, null: false
       t.float :duration, null: false
       t.json :context
+      t.string :error_fingerprint, limit: 64
     end
 
     add_index :catpm_samples, :recorded_at, name: 'idx_catpm_samples_time'
     add_index :catpm_samples, [:kind, :recorded_at], name: 'idx_catpm_samples_kind_time'
+    add_index :catpm_samples, :error_fingerprint, name: 'idx_catpm_samples_error_fp'
 
     create_table :catpm_errors do |t|
       t.string :fingerprint, null: false, limit: 64
@@ -46,6 +48,7 @@ class CreateCatpmTables < ActiveRecord::Migration[8.0]
       t.datetime :first_occurred_at, null: false
       t.datetime :last_occurred_at, null: false
       t.json :contexts
+      t.json :occurrence_buckets
       t.datetime :resolved_at
     end
 

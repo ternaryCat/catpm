@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 # This file is auto-generated from the current state of the database. Instead
 # of editing this file, please use the migrations feature of Active Record to
 # incrementally modify your database, and then regenerate this schema definition.
@@ -39,6 +37,7 @@ ActiveRecord::Schema[8.1].define(version: 2025_06_01_000001) do
     t.string 'kind', null: false
     t.datetime 'last_occurred_at', null: false
     t.text 'message'
+    t.json 'occurrence_buckets'
     t.integer 'occurrences_count', default: 0, null: false
     t.datetime 'resolved_at'
     t.index ['fingerprint'], name: 'idx_catpm_errors_fingerprint', unique: true
@@ -65,10 +64,12 @@ ActiveRecord::Schema[8.1].define(version: 2025_06_01_000001) do
     t.integer 'bucket_id', null: false
     t.json 'context'
     t.float 'duration', null: false
+    t.string 'error_fingerprint', limit: 64
     t.string 'kind', null: false
     t.datetime 'recorded_at', null: false
     t.string 'sample_type', null: false
     t.index ['bucket_id'], name: 'index_catpm_samples_on_bucket_id'
+    t.index ['error_fingerprint'], name: 'idx_catpm_samples_error_fp'
     t.index ['kind', 'recorded_at'], name: 'idx_catpm_samples_kind_time'
     t.index ['recorded_at'], name: 'idx_catpm_samples_time'
   end

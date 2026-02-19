@@ -48,6 +48,19 @@
   </div>
 </div>
 
+<%# ─── Error Frequency Chart ─── %>
+<div class="time-range">
+  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
+    <a href="<%= catpm.error_path(@error, range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% end %>
+</div>
+
+<h2>Error Frequency</h2>
+<%= section_description("Occurrences per time slot over the selected range.") %>
+<div style="border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:24px; position:relative">
+  <%= bar_chart_svg(@chart_data, width: 600, height: 180, color: "var(--red, #e5534b)", time_labels: @chart_times) %>
+</div>
+
 <%# ─── Backtrace ─── %>
 <% first_bt = @contexts.first && (@contexts.first["backtrace"] || @contexts.first[:backtrace] || []) %>
 <% if first_bt.any? %>
@@ -55,8 +68,17 @@
   <%= section_description("All occurrences share the same fingerprint and backtrace.") %>
   <div style="border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:12px; position:relative">
     <button class="copy-btn" style="position:absolute; top:8px; right:8px" onclick="copyText(this)">Copy</button>
-    <pre class="mono" style="font-size:12px; white-space:pre-wrap; margin:0; line-height:1.8"><% first_bt.first(20).each do |line| %><span class="<%= line.match?(%r{/(gems|ruby|vendor|bundle)/}) ? 'backtrace-lib' : 'backtrace-app' %>"><%= line %></span>
+    <% preview_lines = first_bt.first(10) %>
+    <% remaining_lines = first_bt.drop(10) %>
+    <pre class="mono" style="font-size:12px; white-space:pre-wrap; margin:0; line-height:1.8"><% preview_lines.each do |line| %><span class="<%= line.match?(%r{/(gems|ruby|vendor|bundle)/}) ? 'backtrace-lib' : 'backtrace-app' %>"><%= line %></span>
 <% end %></pre>
+    <% if remaining_lines.any? %>
+      <details style="margin-top:4px">
+        <summary style="cursor:pointer; font-size:12px; color:var(--text-2)">Show full backtrace (<%= first_bt.size %> lines)</summary>
+        <pre class="mono" style="font-size:12px; white-space:pre-wrap; margin:0; line-height:1.8"><% remaining_lines.each do |line| %><span class="<%= line.match?(%r{/(gems|ruby|vendor|bundle)/}) ? 'backtrace-lib' : 'backtrace-app' %>"><%= line %></span>
+<% end %></pre>
+      </details>
+    <% end %>
   </div>
 <% end %>
 
@@ -66,14 +88,14 @@
   <span class="mono" style="word-break:break-all"><%= @error.fingerprint %></span>
 </div>
 
-<%# ─── Occurrences ─── %>
-<% if @contexts.any? %>
-  <h2>Last <%= @contexts.size %> Captured Occurrences</h2>
+<%# ─── Samples ─── %>
+<% if @samples.any? %>
+  <h2>Recent Samples</h2>
+  <%= section_description("Linked request samples for this error. Click to view full details.") %>
   <div class="table-scroll">
   <table>
     <thead>
       <tr>
-        <th>#</th>
         <th>Time</th>
         <th>Duration</th>
         <th>Status</th>
@@ -82,24 +104,42 @@
       </tr>
     </thead>
     <tbody>
-      <% @contexts.each_with_index do |ctx, i| %>
-        <% segments = ctx["segments"] || ctx[:segments] || [] %>
-        <% has_detail = segments.any? %>
-        <tr id="occurrence-<%= i + 1 %>" class="<%= 'expandable' if has_detail %>" data-occurrence="<%= i %>" <% if has_detail %>onclick="toggleOccurrence(this)"<% end %>>
-          <td class="mono text-muted"><% if has_detail %><span class="chevron">&#x25B8;</span> <% end %>#<%= i + 1 %></td>
+      <% @samples.each do |sample| %>
+        <% ctx = sample.parsed_context %>
+        <tr class="clickable-row" onclick="window.location='<%= catpm.sample_path(sample) %>';" style="cursor:pointer">
+          <td><%= time_with_tooltip(sample.recorded_at) %></td>
+          <td class="mono"><%= format_duration(sample.duration) %></td>
+          <td><%= status_badge(ctx["status"] || ctx[:status]) %></td>
+          <td class="mono"><%= sample.bucket&.target || "—" %></td>
+          <td class="mono text-muted"><%= segment_count_summary(ctx["segment_summary"] || ctx[:segment_summary]).presence || "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  </div>
+<% end %>
+
+<%# ─── Legacy Occurrences (for errors without linked samples) ─── %>
+<% if @samples.empty? && @contexts.any? %>
+  <h2>Last <%= @contexts.size %> Captured Occurrences</h2>
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Duration</th>
+        <th>Status</th>
+        <th>Target</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @contexts.each do |ctx| %>
+        <tr>
           <td><%= time_with_tooltip(ctx["occurred_at"] || ctx[:occurred_at]) %></td>
           <td class="mono"><%= (ctx["duration"] || ctx[:duration]) ? format_duration((ctx["duration"] || ctx[:duration]).to_f) : "—" %></td>
           <td><%= status_badge(ctx["status"] || ctx[:status]) %></td>
           <td class="mono"><%= ctx["target"] || ctx[:target] || "—" %></td>
-          <td class="mono text-muted"><%= segment_count_summary(ctx["segment_summary"] || ctx[:segment_summary]).presence || "—" %></td>
         </tr>
-        <% if has_detail %>
-          <tr id="detail-<%= i %>" style="display:none">
-            <td colspan="6" style="padding:14px; background:var(--bg-1)">
-              <%= render "catpm/shared/segments_waterfall", segments: segments, total_duration: (ctx["duration"] || ctx[:duration] || 1), segments_capped: ctx["segments_capped"] || ctx[:segments_capped], table_id: "segments-table-#{i}" %>
-            </td>
-          </tr>
-        <% end %>
       <% end %>
     </tbody>
   </table>
