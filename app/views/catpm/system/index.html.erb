@@ -38,8 +38,8 @@
   <div class="pipeline-node">
     <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="8" rx="8" ry="4"/><path d="M6 8v12c0 2.2 3.58 4 8 4s8-1.8 8-4V8"/><path d="M6 14c0 2.2 3.58 4 8 4s8-1.8 8-4"/></svg></div>
     <div class="node-label">Database</div>
-    <div class="node-value"><%= @bucket_count %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">buckets</span></div>
-    <div class="node-detail">Aggregated stats are stored as time buckets, plus <%= @sample_count %> detailed samples and <%= @error_count %> error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{@config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever"}." : "No data yet." %></div>
+    <div class="node-value" style="font-size:14px">Storage</div>
+    <div class="node-detail">Aggregated stats are stored as time buckets, with detailed samples and error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{@config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever"}." : "No data yet." %></div>
   </div>
 </div>
 
