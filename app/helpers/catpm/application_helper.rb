@@ -236,7 +236,7 @@ module Catpm
       prev_url = '?' + prev_params.compact.map { |k, v| "#{k}=#{v}" }.join('&')
       next_url = '?' + next_params.compact.map { |k, v| "#{k}=#{v}" }.join('&')
 
-      html = '<div class="pagination">'
+      html = +'<div class="pagination">'
       if current_page > 1
         html << %(<a href="#{prev_url}" class="btn">← Previous</a>)
       else
