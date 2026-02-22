@@ -435,14 +435,26 @@ module Catpm
         }
 
         source_ids = buckets.map(&:id)
+        survivor = buckets.first
 
-        # Delete source buckets first (to avoid unique constraint conflict
-        # if one source bucket has the same bucket_start as the target)
-        Catpm::Sample.where(bucket_id: source_ids).delete_all
-        Catpm::Bucket.where(id: source_ids).delete_all
+        # Reassign all samples to the survivor bucket
+        Catpm::Sample.where(bucket_id: source_ids).update_all(bucket_id: survivor.id)
 
-        # Create the merged bucket
-        adapter.persist_buckets([merged])
+        # Delete non-survivor source buckets (now sample-free)
+        Catpm::Bucket.where(id: source_ids - [survivor.id]).delete_all
+
+        # Overwrite survivor with merged data
+        survivor.update!(
+          bucket_start: aligned_start,
+          count: merged[:count],
+          success_count: merged[:success_count],
+          failure_count: merged[:failure_count],
+          duration_sum: merged[:duration_sum],
+          duration_max: merged[:duration_max],
+          duration_min: merged[:duration_min],
+          metadata_sum: merged[:metadata_sum],
+          p95_digest: merged[:p95_digest]
+        )
       end
     end
 
