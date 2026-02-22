@@ -5,8 +5,8 @@
 
 <%# ─── Time Range ─── %>
 <div class="time-range">
-  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
-    <a href="<%= catpm.events_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
+    <a href="<%= catpm.events_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
   <% end %>
   <span style="margin-left:auto; font-size:12px; color:var(--text-2)">
     Updated <%= Time.current.strftime("%H:%M:%S") %>

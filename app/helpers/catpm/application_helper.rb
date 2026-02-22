@@ -116,10 +116,14 @@ module Catpm
       circles = parsed.map.with_index do |(x, y, val), i|
         label = labels ? labels[i] : val.is_a?(Float) ? ('%.1f' % val) : val
         time_attr = time_labels ? %( data-time="#{time_labels[i]}") : ''
-        %(<circle cx="#{x}" cy="#{y}" r="6" fill="transparent" data-value="#{label}"#{time_attr} class="sparkline-dot"/>)
+        %(<circle cx="#{x}" cy="#{y}" r="0" data-value="#{label}"#{time_attr} class="sparkline-dot"/>)
       end.join
 
-      %(<svg width="#{width}" height="#{height}" viewBox="0 0 #{width} #{height}" xmlns="http://www.w3.org/2000/svg" style="display:block;position:relative">#{fill_el}<polyline points="#{coords_str.join(" ")}" fill="none" stroke="#{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>#{circles}</svg>).html_safe
+      capture = %(<rect width="#{width}" height="#{height}" fill="transparent"/>)
+      highlight = %(<circle cx="0" cy="0" r="3" fill="#{color}" class="sparkline-highlight" style="display:none"/>)
+      vline = %(<line x1="0" y1="0" x2="0" y2="#{height}" stroke="#{color}" stroke-width="0.5" opacity="0.4" class="sparkline-vline" style="display:none"/>)
+
+      %(<svg class="sparkline-chart" width="#{width}" height="#{height}" viewBox="0 0 #{width} #{height}" xmlns="http://www.w3.org/2000/svg" style="display:block">#{capture}#{fill_el}<polyline points="#{coords_str.join(" ")}" fill="none" stroke="#{color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>#{circles}#{vline}#{highlight}</svg>).html_safe
     end
 
     def bar_chart_svg(data_points, width: 600, height: 200, color: 'var(--accent)', time_labels: nil)
@@ -207,16 +211,16 @@ module Catpm
       %(<span class="status-dot"><span class="dot" style="background:#{color}"></span> #{label}</span>).html_safe
     end
 
-    def parse_range(range_str, extra_valid: [])
-      valid = RANGE_KEYS + extra_valid
-      key = valid.include?(range_str) ? range_str : '1h'
-      return [key, nil, nil] if extra_valid.include?(key) && !RANGES.key?(key)
+    def parse_range(range_str)
+      key = (RANGE_KEYS + ['all']).include?(range_str) ? range_str : 'all'
+      return [key, nil, nil] if key == 'all'
       period, bucket_seconds = RANGES[key]
       [key, period, bucket_seconds]
     end
 
     def range_label(range)
       case range
+      when 'all' then 'All time'
       when '6h'  then 'Last 6 hours'
       when '24h' then 'Last 24 hours'
       when '1w'  then 'Last week'
@@ -225,6 +229,14 @@ module Catpm
       when '1y'  then 'Last year'
       else 'Last hour'
       end
+    end
+
+    def compute_bucket_seconds(buckets)
+      return 60 if buckets.empty?
+      times = buckets.map { |b| b.bucket_start.to_i }
+      span = times.max - times.min
+      span = 3600 if span < 3600
+      (span / 60.0).ceil
     end
 
     def pagination_nav(current_page, total_count, per_page, extra_params: {})

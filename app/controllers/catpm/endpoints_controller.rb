@@ -8,7 +8,7 @@ module Catpm
       @operation = params[:operation].presence || ''
 
       # Time range filter
-      @range, period, _bucket_seconds = helpers.parse_range(remembered_range, extra_valid: ['all'])
+      @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
       scope = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
@@ -49,13 +49,37 @@ module Catpm
         end
       end
 
+      # Chart data — request volume, errors, avg duration
+      chart_buckets = scope.order(bucket_start: :asc).to_a
+      bucket_seconds = helpers.compute_bucket_seconds(chart_buckets) if @range == 'all'
+
+      if bucket_seconds
+        slots_count = {}
+        slots_errors = {}
+        slots_dur_sum = {}
+        slots_dur_count = {}
+        chart_buckets.each do |b|
+          slot_key = (b.bucket_start.to_i / bucket_seconds) * bucket_seconds
+          slots_count[slot_key] = (slots_count[slot_key] || 0) + b.count
+          slots_errors[slot_key] = (slots_errors[slot_key] || 0) + b.failure_count
+          slots_dur_sum[slot_key] = (slots_dur_sum[slot_key] || 0) + b.duration_sum
+          slots_dur_count[slot_key] = (slots_dur_count[slot_key] || 0) + b.count
+        end
+
+        now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds
+        @chart_requests = 60.times.map { |i| slots_count[now_slot - (59 - i) * bucket_seconds] || 0 }
+        @chart_errors = 60.times.map { |i| slots_errors[now_slot - (59 - i) * bucket_seconds] || 0 }
+        @chart_durations = 60.times.map do |i|
+          key = now_slot - (59 - i) * bucket_seconds
+          c = slots_dur_count[key] || 0
+          c > 0 ? (slots_dur_sum[key] / c).round(1) : 0
+        end
+        @chart_times = 60.times.map { |i| Time.at(now_slot - (59 - i) * bucket_seconds).strftime('%H:%M') }
+      end
+
       endpoint_samples = Catpm::Sample
         .joins(:bucket)
         .where(catpm_buckets: { kind: @kind, target: @target, operation: @operation })
-
-      if @range != 'all'
-        endpoint_samples = endpoint_samples.where('catpm_samples.recorded_at >= ?', period.ago)
-      end
 
       @slow_samples = endpoint_samples.where(sample_type: 'slow').order(duration: :desc).limit(10)
       @samples = endpoint_samples.where(sample_type: 'random').order(recorded_at: :desc).limit(10)

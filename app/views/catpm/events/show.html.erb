@@ -11,8 +11,8 @@
 
 <%# ─── Time Range ─── %>
 <div class="time-range">
-  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
-    <a href="<%= catpm.event_path(name: @name, range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
+    <a href="<%= catpm.event_path(name: @name, range: r) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
   <% end %>
 </div>
 
@@ -34,12 +34,16 @@
   </div>
 </div>
 
-<%# ─── Bar Chart ─── %>
-<h2>Event Volume</h2>
-<%= section_description("Events per time slot over the selected range.") %>
-<div style="border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:24px; position:relative">
-  <%= bar_chart_svg(@chart_data, width: 600, height: 180, color: "var(--accent)", time_labels: @chart_times) %>
-</div>
+<% if @chart_data&.any? { |v| v > 0 } %>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="label">Event Volume</div>
+      <div class="value"><%= @chart_data.sum %></div>
+      <div class="detail"><%= range_label(@range) %></div>
+      <div class="sparkline"><%= sparkline_svg(@chart_data, width: 500, height: 64, color: "var(--accent)", fill: true, time_labels: @chart_times) %></div>
+    </div>
+  </div>
+<% end %>
 
 <%# ─── Recent Samples ─── %>
 <h2>Recent Samples</h2>

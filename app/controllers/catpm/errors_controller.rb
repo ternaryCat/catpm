@@ -66,12 +66,36 @@ module Catpm
       end
 
       slots = {}
-      cutoff = period.ago.to_i
-      (ob[resolution] || {}).each do |ts_str, count|
-        ts = ts_str.to_i
-        next if ts < cutoff
-        slot_key = (ts / bucket_seconds) * bucket_seconds
-        slots[slot_key] = (slots[slot_key] || 0) + count
+      if @range == 'all'
+        # Collect all timestamps to compute dynamic bucket_seconds
+        all_timestamps = []
+        (ob[resolution] || {}).each do |ts_str, count|
+          ts = ts_str.to_i
+          all_timestamps << ts
+          slots[ts] = (slots[ts] || 0) + count
+        end
+        if all_timestamps.any?
+          span = all_timestamps.max - all_timestamps.min
+          span = 3600 if span < 3600
+          bucket_seconds = (span / 60.0).ceil
+        else
+          bucket_seconds = 60
+        end
+        # Re-bucket with computed bucket_seconds
+        rebucketed = {}
+        slots.each do |ts, count|
+          slot_key = (ts / bucket_seconds) * bucket_seconds
+          rebucketed[slot_key] = (rebucketed[slot_key] || 0) + count
+        end
+        slots = rebucketed
+      else
+        cutoff = period.ago.to_i
+        (ob[resolution] || {}).each do |ts_str, count|
+          ts = ts_str.to_i
+          next if ts < cutoff
+          slot_key = (ts / bucket_seconds) * bucket_seconds
+          slots[slot_key] = (slots[slot_key] || 0) + count
+        end
       end
 
       now_slot = (Time.current.to_i / bucket_seconds) * bucket_seconds

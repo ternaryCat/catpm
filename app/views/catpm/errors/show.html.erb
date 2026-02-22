@@ -50,16 +50,21 @@
 
 <%# ─── Error Frequency Chart ─── %>
 <div class="time-range">
-  <% Catpm::ApplicationHelper::RANGE_KEYS.each do |r| %>
-    <a href="<%= catpm.error_path(@error, range: r) %>" class="<%= 'active' if @range == r %>"><%= r %></a>
+  <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
+    <a href="<%= catpm.error_path(@error, range: r) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
   <% end %>
 </div>
 
-<h2>Error Frequency</h2>
-<%= section_description("Occurrences per time slot over the selected range.") %>
-<div style="border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:24px; position:relative">
-  <%= bar_chart_svg(@chart_data, width: 600, height: 180, color: "var(--red, #e5534b)", time_labels: @chart_times) %>
-</div>
+<% if @chart_data&.any? { |v| v > 0 } %>
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="label">Error Frequency</div>
+      <div class="value"><%= @chart_data.sum %></div>
+      <div class="detail">occurrences &middot; <%= range_label(@range) %></div>
+      <div class="sparkline"><%= sparkline_svg(@chart_data, width: 500, height: 64, color: "var(--red)", fill: true, time_labels: @chart_times) %></div>
+    </div>
+  </div>
+<% end %>
 
 <%# ─── Backtrace ─── %>
 <% first_bt = @contexts.first && (@contexts.first["backtrace"] || @contexts.first[:backtrace] || []) %>

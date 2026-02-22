@@ -21,7 +21,7 @@
 
 <% ep_params = { kind: @kind, target: @target, operation: @operation } %>
 <div class="time-range">
-  <% (Catpm::ApplicationHelper::RANGE_KEYS + ["all"]).each do |r| %>
+  <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
     <a href="<%= catpm.endpoint_path(ep_params.merge(range: r)) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
   <% end %>
 </div>
@@ -106,19 +106,36 @@
     </div>
   </div>
 
-  <div class="grid">
-    <% type_data.each do |d| %>
-      <div class="card">
-        <div class="label">Avg <%= d[:label] %></div>
-        <div class="value"><%= "%.0f" % d[:avg_count] %></div>
-        <div class="detail"><%= format_duration(d[:avg_dur]) %> avg</div>
+<% end %>
+
+<% has_requests = @chart_requests&.any? { |v| v > 0 } %>
+<% has_errors = @chart_errors&.any? { |v| v > 0 } %>
+<% has_durations = @chart_durations&.any? { |v| v > 0 } %>
+<% if has_requests || has_errors || has_durations %>
+  <div class="charts-row">
+    <% if has_requests %>
+      <div class="chart-card">
+        <div class="label">Request Volume</div>
+        <div class="value"><%= @chart_requests.sum %></div>
+        <div class="detail"><%= range_label(@range) %></div>
+        <div class="sparkline"><%= sparkline_svg(@chart_requests, width: 500, height: 64, color: "var(--accent)", fill: true, time_labels: @chart_times) %></div>
       </div>
     <% end %>
-    <% if avg_other > 0 %>
-      <div class="card">
-        <div class="label">Avg Other</div>
-        <div class="value"><%= format_duration(avg_other) %></div>
-        <div class="detail">App code, middleware, etc.</div>
+    <% if has_errors %>
+      <div class="chart-card">
+        <div class="label">Error Volume</div>
+        <div class="value"><%= @chart_errors.sum %></div>
+        <div class="detail"><%= range_label(@range) %></div>
+        <div class="sparkline"><%= sparkline_svg(@chart_errors, width: 500, height: 64, color: "var(--red)", fill: true, time_labels: @chart_times) %></div>
+      </div>
+    <% end %>
+    <% if has_durations %>
+      <div class="chart-card">
+        <div class="label">Avg Duration</div>
+        <% nonzero = @chart_durations.select { |v| v > 0 } %>
+        <div class="value"><%= nonzero.any? ? format_duration(nonzero.sum / nonzero.size) : "—" %></div>
+        <div class="detail"><%= range_label(@range) %></div>
+        <div class="sparkline"><%= sparkline_svg(@chart_durations, width: 500, height: 64, color: "var(--accent)", fill: true, labels: @chart_durations.map { |d| format_duration(d) }, time_labels: @chart_times) %></div>
       </div>
     <% end %>
   </div>

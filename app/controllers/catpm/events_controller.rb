@@ -7,11 +7,23 @@ module Catpm
     def index
       @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
-      recent_buckets = Catpm::EventBucket.recent(period).to_a
+      recent_buckets = if @range == 'all'
+        Catpm::EventBucket.all.to_a
+      else
+        Catpm::EventBucket.recent(period).to_a
+      end
+
+      bucket_seconds = helpers.compute_bucket_seconds(recent_buckets) if @range == 'all'
 
       # Hero metrics
       @total_events = recent_buckets.sum(&:count)
-      period_minutes = period.to_f / 60
+      effective_period = if @range == 'all'
+        earliest = recent_buckets.min_by(&:bucket_start)&.bucket_start
+        earliest ? [Time.current - earliest, 60].max : 3600
+      else
+        period
+      end
+      period_minutes = effective_period.to_f / 60
       @events_per_min = (period_minutes > 0 ? @total_events / period_minutes : 0).round(1)
 
       # Group by name for table
@@ -61,11 +73,23 @@ module Catpm
       @name = params[:name]
       @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
-      recent_buckets = Catpm::EventBucket.by_name(@name).recent(period).to_a
+      recent_buckets = if @range == 'all'
+        Catpm::EventBucket.by_name(@name).all.to_a
+      else
+        Catpm::EventBucket.by_name(@name).recent(period).to_a
+      end
+
+      bucket_seconds = helpers.compute_bucket_seconds(recent_buckets) if @range == 'all'
 
       # Hero metrics
       @total_count = recent_buckets.sum(&:count)
-      period_minutes = period.to_f / 60
+      effective_period = if @range == 'all'
+        earliest = recent_buckets.min_by(&:bucket_start)&.bucket_start
+        earliest ? [Time.current - earliest, 60].max : 3600
+      else
+        period
+      end
+      period_minutes = effective_period.to_f / 60
       @events_per_min = (period_minutes > 0 ? @total_count / period_minutes : 0).round(1)
       @last_seen = recent_buckets.map(&:bucket_start).max
 
