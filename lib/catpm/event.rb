@@ -10,18 +10,24 @@ module Catpm
                   :metadata, :error_class, :error_message, :backtrace,
                   :sample_type, :context, :status
 
+    EMPTY_HASH = {}.freeze
+    private_constant :EMPTY_HASH
+
     def initialize(kind:, target:, operation: '', duration: 0.0, started_at: nil,
-                   metadata: {}, error_class: nil, error_message: nil, backtrace: nil,
-                   sample_type: nil, context: {}, status: nil)
+                   metadata: nil, error_class: nil, error_message: nil, backtrace: nil,
+                   sample_type: nil, context: nil, status: nil)
       @kind = kind.to_s
       @target = target.to_s
       @operation = (operation || '').to_s
       @duration = duration.to_f
       @started_at = started_at || Time.current
-      @metadata = metadata || {}
+      @metadata = metadata || EMPTY_HASH
       @error_class = error_class
       @error_message = error_message
-      @backtrace = backtrace
+      @backtrace = if backtrace
+        limit = Catpm.config.backtrace_lines
+        limit ? backtrace.first(limit) : backtrace
+      end
       @sample_type = sample_type
       @context = context
       @status = status
@@ -67,7 +73,7 @@ module Catpm
     end
 
     def metadata_bytes
-      return 0 if metadata.empty?
+      return 0 if metadata.nil? || metadata.empty?
 
       metadata.to_json.bytesize + REF_SIZE
     end

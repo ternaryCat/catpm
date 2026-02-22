@@ -63,6 +63,7 @@ class FlusherTest < ActiveSupport::TestCase
     @buffer.push(Catpm::Event.new(
       kind: :http, target: 'A#slow', operation: 'GET',
       duration: 500.0, started_at: Time.current,
+      sample_type: 'slow',
       context: { path: '/slow' }
     ))
 

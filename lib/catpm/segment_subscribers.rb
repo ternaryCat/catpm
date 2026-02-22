@@ -171,6 +171,8 @@ module Catpm
 
         duration = event.duration
         sql = payload[:sql].to_s
+        max_len = Catpm.config.max_sql_length
+        sql = sql.truncate(max_len) if max_len && sql.length > max_len
         source = duration >= Catpm.config.segment_source_threshold ? extract_source_location : nil
 
         req_segments.add(

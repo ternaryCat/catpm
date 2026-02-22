@@ -12,6 +12,7 @@ module Catpm
     Centroid = Struct.new(:mean, :weight)
 
     COMPRESSION = 100 # Controls accuracy vs. memory trade-off
+    BUFFER_FLUSH_FACTOR = 2 # Lower = more frequent flushes (better accuracy), higher = fewer flushes (better performance)
 
     attr_reader :count
 
@@ -22,7 +23,7 @@ module Catpm
       @min = Float::INFINITY
       @max = -Float::INFINITY
       @buffer = []
-      @buffer_limit = @compression * 5
+      @buffer_limit = @compression * BUFFER_FLUSH_FACTOR
     end
 
     def add(value, weight = 1)

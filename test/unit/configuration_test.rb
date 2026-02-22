@@ -17,7 +17,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal({}, config.slow_threshold_per_kind)
     assert_equal [], config.ignored_targets
     assert_nil config.retention_period
-    assert_equal 32.megabytes, config.max_buffer_memory
+    assert_equal 8.megabytes, config.max_buffer_memory
     assert_equal 30, config.flush_interval
     assert_equal 5, config.flush_jitter
     assert_equal 5, config.max_error_contexts
@@ -36,7 +36,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 60, config.circuit_breaker_recovery_timeout
     assert_equal 5_000, config.sqlite_busy_timeout
     assert_equal 100, config.persistence_batch_size
-    assert_nil config.backtrace_lines
+    assert_equal 30, config.backtrace_lines
     assert_equal 5, config.shutdown_timeout
   end
 

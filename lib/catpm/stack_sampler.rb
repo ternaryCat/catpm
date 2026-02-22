@@ -2,7 +2,7 @@
 
 module Catpm
   class StackSampler
-    SAMPLE_INTERVAL = 0.005 # 5ms
+    MS_PER_SECOND = 1000.0
 
     # Single global thread that samples all active requests.
     # Avoids creating a thread per request.
@@ -29,7 +29,7 @@ module Catpm
       def start_thread
         @thread = Thread.new do
           loop do
-            sleep(SAMPLE_INTERVAL)
+            sleep(Catpm.config.stack_sample_interval)
             sample_all
           end
         end
@@ -65,6 +65,9 @@ module Catpm
 
     # Called by SamplingLoop from the global thread
     def capture(now)
+      max = Catpm.config.max_stack_samples_per_request
+      return if max && @samples.size >= max
+
       locs = @target.backtrace_locations
       @samples << [now, locs] if locs
     end
@@ -117,7 +120,7 @@ module Catpm
         duration = estimate_duration(group)
         next if duration < 1.0
 
-        offset = ((group[:start_time] - @request_start) * 1000.0).round(2)
+        offset = ((group[:start_time] - @request_start) * MS_PER_SECOND).round(2)
         app_frame = group[:app_frame]
         leaf = group[:leaves].first&.last
 
@@ -199,8 +202,8 @@ module Catpm
 
       spans.filter_map do |span|
         duration = [
-          (span[:end_time] - span[:start_time]) * 1000.0,
-          span[:count] * SAMPLE_INTERVAL * 1000.0
+          (span[:end_time] - span[:start_time]) * MS_PER_SECOND,
+          span[:count] * Catpm.config.stack_sample_interval * MS_PER_SECOND
         ].max
         next if duration < 1.0
 
@@ -211,7 +214,7 @@ module Catpm
           type: classify_path(path),
           detail: build_gem_detail(frame),
           duration: duration.round(2),
-          offset: ((span[:start_time] - @request_start) * 1000.0).round(2),
+          offset: ((span[:start_time] - @request_start) * MS_PER_SECOND).round(2),
           started_at: span[:start_time]
         }
       end
@@ -219,8 +222,8 @@ module Catpm
 
     def estimate_duration(group)
       [
-        (group[:end_time] - group[:start_time]) * 1000.0,
-        group[:count] * SAMPLE_INTERVAL * 1000.0
+        (group[:end_time] - group[:start_time]) * MS_PER_SECOND,
+        group[:count] * Catpm.config.stack_sample_interval * MS_PER_SECOND
       ].max
     end
 

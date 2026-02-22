@@ -41,7 +41,9 @@ module Catpm
                   :shutdown_timeout,
                   :events_enabled,
                   :events_max_samples_per_name,
-                  :track_own_requests
+                  :track_own_requests,
+                  :stack_sample_interval,
+                  :max_stack_samples_per_request
 
     def initialize
       @enabled = true
@@ -58,7 +60,7 @@ module Catpm
       @slow_threshold_per_kind = {}
       @ignored_targets = []
       @retention_period = nil # nil = keep forever (data is downsampled, not deleted)
-      @max_buffer_memory = 32.megabytes
+      @max_buffer_memory = 8.megabytes
       @flush_interval = 30 # seconds
       @flush_jitter = 5 # ±seconds
       @max_error_contexts = 5
@@ -84,6 +86,8 @@ module Catpm
       @events_enabled = false
       @events_max_samples_per_name = 20
       @track_own_requests = false
+      @stack_sample_interval = 0.005 # seconds (5ms)
+      @max_stack_samples_per_request = 200
     end
 
     def slow_threshold_for(kind)

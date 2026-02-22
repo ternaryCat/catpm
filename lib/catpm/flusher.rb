@@ -225,23 +225,49 @@ module Catpm
 
 
     def rotate_samples(samples)
+      return samples if samples.empty?
+
+      # Pre-fetch counts for all endpoints and types in bulk
+      endpoint_keys = samples.map { |s| s[:bucket_key][0..2] }.uniq
+      error_fps = samples.filter_map { |s| s[:error_fingerprint] }.uniq
+
+      # Build counts cache: { [kind, target, op, type] => count }
+      counts_cache = {}
+      if endpoint_keys.any?
+        Catpm::Sample.joins(:bucket)
+          .where(catpm_buckets: { kind: endpoint_keys.map(&:first), target: endpoint_keys.map { |k| k[1] }, operation: endpoint_keys.map { |k| k[2] } })
+          .where(sample_type: %w[random slow])
+          .group('catpm_buckets.kind', 'catpm_buckets.target', 'catpm_buckets.operation', 'catpm_samples.sample_type')
+          .count
+          .each { |(kind, target, op, type), cnt| counts_cache[[kind, target, op, type]] = cnt }
+      end
+
+      error_counts = {}
+      if error_fps.any?
+        Catpm::Sample.where(sample_type: 'error', error_fingerprint: error_fps)
+          .group(:error_fingerprint).count
+          .each { |fp, cnt| error_counts[fp] = cnt }
+      end
+
       samples.each do |sample|
-        kind, target, operation = sample[:bucket_key][0], sample[:bucket_key][1], sample[:bucket_key][2]
-        endpoint_samples = Catpm::Sample
-          .joins(:bucket)
-          .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+        kind, target, operation = sample[:bucket_key][0..2]
 
         case sample[:sample_type]
         when 'random'
-          existing = endpoint_samples.where(sample_type: 'random')
-          if existing.count >= Catpm.config.max_random_samples_per_endpoint
-            existing.order(recorded_at: :asc).first.destroy
+          cache_key = [kind, target, operation, 'random']
+          if (counts_cache[cache_key] || 0) >= Catpm.config.max_random_samples_per_endpoint
+            oldest = Catpm::Sample.joins(:bucket)
+              .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+              .where(sample_type: 'random').order(recorded_at: :asc).first
+            oldest&.destroy
           end
         when 'slow'
-          existing = endpoint_samples.where(sample_type: 'slow')
-          if existing.count >= Catpm.config.max_slow_samples_per_endpoint
-            weakest = existing.order(duration: :asc).first
-            if sample[:duration] > weakest.duration
+          cache_key = [kind, target, operation, 'slow']
+          if (counts_cache[cache_key] || 0) >= Catpm.config.max_slow_samples_per_endpoint
+            weakest = Catpm::Sample.joins(:bucket)
+              .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+              .where(sample_type: 'slow').order(duration: :asc).first
+            if weakest && sample[:duration] > weakest.duration
               weakest.destroy
             else
               sample[:_skip] = true
@@ -249,11 +275,10 @@ module Catpm
           end
         when 'error'
           fp = sample[:error_fingerprint]
-          if fp
-            existing = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
-            if existing.count >= Catpm.config.max_error_samples_per_fingerprint
-              existing.order(recorded_at: :asc).first.destroy
-            end
+          if fp && (error_counts[fp] || 0) >= Catpm.config.max_error_samples_per_fingerprint
+            oldest = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
+              .order(recorded_at: :asc).first
+            oldest&.destroy
           end
         end
       end
@@ -267,11 +292,7 @@ module Catpm
         occurred_at: event.started_at.iso8601,
         kind: event.kind,
         operation: event_context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
-        backtrace: begin
-          bt = event.backtrace || []
-          limit = Catpm.config.backtrace_lines
-          limit ? bt.first(limit) : bt
-        end,
+        backtrace: event.backtrace || [],
         duration: event.duration,
         status: event.status
       }
@@ -377,60 +398,61 @@ module Catpm
       cutoff = age_threshold.ago
       target_seconds = target_interval.to_i
 
-      # Find all buckets older than cutoff
-      source_buckets = Catpm::Bucket.where(bucket_start: ...cutoff).to_a
-      return if source_buckets.empty?
+      # Process in batches to avoid loading all old buckets into memory
+      Catpm::Bucket.where(bucket_start: ...cutoff)
+        .select(:id, :kind, :target, :operation, :bucket_start)
+        .group_by { |b| [b.kind, b.target, b.operation] }
+        .each do |(_kind, _target, _operation), endpoint_buckets|
+          groups = endpoint_buckets.group_by do |bucket|
+            epoch = bucket.bucket_start.to_i
+            aligned_epoch = epoch - (epoch % target_seconds)
+            Time.at(aligned_epoch).utc
+          end
 
-      # Group by (kind, target, operation) + target-aligned bucket_start
-      groups = source_buckets.group_by do |bucket|
-        epoch = bucket.bucket_start.to_i
-        aligned_epoch = epoch - (epoch % target_seconds)
-        aligned_start = Time.at(aligned_epoch).utc
+          groups.each do |aligned_start, stub_buckets|
+            next if stub_buckets.size == 1 && stub_buckets.first.bucket_start.to_i % target_seconds == 0
 
-        [bucket.kind, bucket.target, bucket.operation, aligned_start]
-      end
+            # Load full records only for groups that need merging
+            bucket_ids = stub_buckets.map(&:id)
+            buckets = Catpm::Bucket.where(id: bucket_ids).to_a
 
-      groups.each do |(kind, target, operation, aligned_start), buckets|
-        # Skip if only one bucket already at the target alignment
-        next if buckets.size == 1 && buckets.first.bucket_start.to_i % target_seconds == 0
+            merged = {
+              kind: buckets.first.kind,
+              target: buckets.first.target,
+              operation: buckets.first.operation,
+              bucket_start: aligned_start,
+              count: buckets.sum(&:count),
+              success_count: buckets.sum(&:success_count),
+              failure_count: buckets.sum(&:failure_count),
+              duration_sum: buckets.sum(&:duration_sum),
+              duration_max: buckets.map(&:duration_max).max,
+              duration_min: buckets.map(&:duration_min).min,
+              metadata_sum: merge_bucket_metadata(buckets, adapter),
+              p95_digest: merge_bucket_digests(buckets)
+            }
 
-        merged = {
-          kind: kind,
-          target: target,
-          operation: operation,
-          bucket_start: aligned_start,
-          count: buckets.sum(&:count),
-          success_count: buckets.sum(&:success_count),
-          failure_count: buckets.sum(&:failure_count),
-          duration_sum: buckets.sum(&:duration_sum),
-          duration_max: buckets.map(&:duration_max).max,
-          duration_min: buckets.map(&:duration_min).min,
-          metadata_sum: merge_bucket_metadata(buckets, adapter),
-          p95_digest: merge_bucket_digests(buckets)
-        }
+            survivor = buckets.first
 
-        source_ids = buckets.map(&:id)
-        survivor = buckets.first
+            # Reassign all samples to the survivor bucket
+            Catpm::Sample.where(bucket_id: bucket_ids).update_all(bucket_id: survivor.id)
 
-        # Reassign all samples to the survivor bucket
-        Catpm::Sample.where(bucket_id: source_ids).update_all(bucket_id: survivor.id)
+            # Delete non-survivor source buckets (now sample-free)
+            Catpm::Bucket.where(id: bucket_ids - [survivor.id]).delete_all
 
-        # Delete non-survivor source buckets (now sample-free)
-        Catpm::Bucket.where(id: source_ids - [survivor.id]).delete_all
-
-        # Overwrite survivor with merged data
-        survivor.update!(
-          bucket_start: aligned_start,
-          count: merged[:count],
-          success_count: merged[:success_count],
-          failure_count: merged[:failure_count],
-          duration_sum: merged[:duration_sum],
-          duration_max: merged[:duration_max],
-          duration_min: merged[:duration_min],
-          metadata_sum: merged[:metadata_sum],
-          p95_digest: merged[:p95_digest]
-        )
-      end
+            # Overwrite survivor with merged data
+            survivor.update!(
+              bucket_start: aligned_start,
+              count: merged[:count],
+              success_count: merged[:success_count],
+              failure_count: merged[:failure_count],
+              duration_sum: merged[:duration_sum],
+              duration_max: merged[:duration_max],
+              duration_min: merged[:duration_min],
+              metadata_sum: merged[:metadata_sum],
+              p95_digest: merged[:p95_digest]
+            )
+          end
+        end
     end
 
     def downsample_event_tier(target_interval:, age_threshold:, adapter:)
