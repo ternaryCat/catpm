@@ -123,14 +123,6 @@ module Catpm
       samples = []
       error_groups = {}
 
-      # Pre-load existing random sample counts per endpoint for filling phase
-      @random_sample_counts = {}
-      Catpm::Sample.where(sample_type: 'random')
-        .joins(:bucket)
-        .group('catpm_buckets.kind', 'catpm_buckets.target', 'catpm_buckets.operation')
-        .count
-        .each { |(kind, target, op), cnt| @random_sample_counts[[ kind, target, op ]] = cnt }
-
       events.each do |event|
         # Bucket aggregation
         key = [ event.kind, event.target, event.operation, event.bucket_start ]
@@ -165,8 +157,8 @@ module Catpm
           )
         end
 
-        # Collect samples
-        sample_type = determine_sample_type(event)
+        # Collect samples (pre-determined by collector — only these events carry full context)
+        sample_type = event.sample_type
         if sample_type
           sample_hash = {
             bucket_key: key,
@@ -174,7 +166,7 @@ module Catpm
             sample_type: sample_type,
             recorded_at: event.started_at,
             duration: event.duration,
-            context: event.context
+            context: event.context || {}
           }
           sample_hash[:error_fingerprint] = error_fp if error_fp
           samples << sample_hash
@@ -231,24 +223,6 @@ module Catpm
       }
     end
 
-    def determine_sample_type(event)
-      return 'error' if event.error?
-
-      threshold = Catpm.config.slow_threshold_for(event.kind.to_sym)
-      return 'slow' if event.duration >= threshold
-
-      # Always sample if endpoint has few random samples (filling phase)
-      endpoint_key = [ event.kind, event.target, event.operation ]
-      existing_random = @random_sample_counts[endpoint_key] || 0
-      if existing_random < Catpm.config.max_random_samples_per_endpoint
-        @random_sample_counts[endpoint_key] = existing_random + 1
-        return 'random'
-      end
-
-      return 'random' if rand(Catpm.config.random_sample_rate) == 0
-
-      nil
-    end
 
     def rotate_samples(samples)
       samples.each do |sample|
@@ -288,10 +262,11 @@ module Catpm
     end
 
     def build_error_context(event)
+      event_context = event.context || {}
       ctx = {
         occurred_at: event.started_at.iso8601,
         kind: event.kind,
-        operation: event.context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
+        operation: event_context.slice(:method, :path, :params, :job_class, :job_id, :queue, :target, :metadata),
         backtrace: begin
           bt = event.backtrace || []
           limit = Catpm.config.backtrace_lines
@@ -303,13 +278,13 @@ module Catpm
 
       ctx[:target] = event.target if event.target.present?
 
-      if event.context[:segments]
-        ctx[:segments] = event.context[:segments]
-        ctx[:segments_capped] = event.context[:segments_capped]
+      if event_context[:segments]
+        ctx[:segments] = event_context[:segments]
+        ctx[:segments_capped] = event_context[:segments_capped]
       end
 
-      if event.context[:segment_summary]
-        ctx[:segment_summary] = event.context[:segment_summary]
+      if event_context[:segment_summary]
+        ctx[:segment_summary] = event_context[:segment_summary]
       end
 
       ctx

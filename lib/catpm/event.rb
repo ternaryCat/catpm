@@ -23,7 +23,7 @@ module Catpm
       @error_message = error_message
       @backtrace = backtrace
       @sample_type = sample_type
-      @context = context || {}
+      @context = context
       @status = status
     end
 
@@ -61,7 +61,7 @@ module Catpm
     end
 
     def context_bytes
-      return 0 if context.empty?
+      return 0 if context.nil? || context.empty?
 
       context.to_json.bytesize + REF_SIZE
     end
