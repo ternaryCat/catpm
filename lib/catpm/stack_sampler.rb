@@ -4,28 +4,69 @@ module Catpm
   class StackSampler
     SAMPLE_INTERVAL = 0.005 # 5ms
 
+    # Single global thread that samples all active requests.
+    # Avoids creating a thread per request.
+    class SamplingLoop
+      def initialize
+        @mutex = Mutex.new
+        @samplers = []
+        @thread = nil
+      end
+
+      def register(sampler)
+        @mutex.synchronize do
+          @samplers << sampler
+          start_thread unless @thread&.alive?
+        end
+      end
+
+      def unregister(sampler)
+        @mutex.synchronize { @samplers.delete(sampler) }
+      end
+
+      private
+
+      def start_thread
+        @thread = Thread.new do
+          loop do
+            sleep(SAMPLE_INTERVAL)
+            sample_all
+          end
+        end
+        @thread.priority = -1
+      end
+
+      def sample_all
+        now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        targets = @mutex.synchronize { @samplers.dup }
+        targets.each { |s| s.capture(now) }
+      end
+    end
+
+    @loop = SamplingLoop.new
+
+    class << self
+      attr_reader :loop
+    end
+
     def initialize(target_thread:, request_start:)
       @target = target_thread
       @request_start = request_start
       @samples = []
-      @running = false
     end
 
     def start
-      @running = true
-      @thread = Thread.new do
-        while @running
-          locs = @target.backtrace_locations
-          @samples << [Process.clock_gettime(Process::CLOCK_MONOTONIC), locs] if locs
-          sleep(SAMPLE_INTERVAL)
-        end
-      end
-      @thread.priority = -1
+      self.class.loop.register(self)
     end
 
     def stop
-      @running = false
-      @thread&.join(0.1)
+      self.class.loop.unregister(self)
+    end
+
+    # Called by SamplingLoop from the global thread
+    def capture(now)
+      locs = @target.backtrace_locations
+      @samples << [now, locs] if locs
     end
 
     # Returns array of { parent: {segment}, children: [{segment}, ...] }
