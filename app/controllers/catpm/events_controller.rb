@@ -5,7 +5,7 @@ module Catpm
     PER_PAGE = 25
 
     def index
-      @range, period, bucket_seconds = helpers.parse_range(params[:range])
+      @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
       recent_buckets = Catpm::EventBucket.recent(period).to_a
 
@@ -59,7 +59,7 @@ module Catpm
 
     def show
       @name = params[:name]
-      @range, period, bucket_seconds = helpers.parse_range(params[:range])
+      @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
       recent_buckets = Catpm::EventBucket.by_name(@name).recent(period).to_a
 

@@ -36,7 +36,7 @@ module Catpm
       @contexts = @error.parsed_contexts
       @active_error_count = Catpm::ErrorRecord.unresolved.count
 
-      @range, period, bucket_seconds = helpers.parse_range(params[:range] || '24h')
+      @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
       # Samples table: 20 most recent linked by fingerprint
       @samples = Catpm::Sample.where(error_fingerprint: @error.fingerprint)

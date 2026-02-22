@@ -6,7 +6,7 @@ module Catpm
 
     def index
       # Time range (parsed first — everything below uses this)
-      @range, period, bucket_seconds = helpers.parse_range(params[:range])
+      @range, period, bucket_seconds = helpers.parse_range(remembered_range)
 
       recent_buckets = Catpm::Bucket.recent(period).to_a
 

@@ -8,7 +8,7 @@ module Catpm
       @operation = params[:operation].presence || ''
 
       # Time range filter
-      @range, period, _bucket_seconds = helpers.parse_range(params[:range], extra_valid: ['all'])
+      @range, period, _bucket_seconds = helpers.parse_range(remembered_range, extra_valid: ['all'])
 
       scope = Catpm::Bucket
         .where(kind: @kind, target: @target, operation: @operation)
