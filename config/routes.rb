@@ -5,6 +5,7 @@ Catpm::Engine.routes.draw do
   resources :status, only: [:index]
   resources :system, only: [:index]
   get 'endpoint', to: 'endpoints#show', as: :endpoint
+  delete 'endpoint', to: 'endpoints#destroy'
   resources :samples, only: [:show]
   resources :events, only: [:index, :show], param: :name
   resources :errors, only: [:index, :show, :destroy] do

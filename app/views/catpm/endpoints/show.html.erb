@@ -8,10 +8,15 @@
 
 <%= render "catpm/shared/page_nav", active: "performance" %>
 
-<div class="breadcrumbs">
-  <a href="<%= catpm.status_index_path %>">Performance</a>
-  <span class="sep">/</span>
-  <span><%= @target %></span>
+<div class="breadcrumbs" style="display:flex; align-items:center; justify-content:space-between">
+  <div>
+    <a href="<%= catpm.status_index_path %>">Performance</a>
+    <span class="sep">/</span>
+    <span><%= @target %></span>
+  </div>
+  <%= button_to "Delete Endpoint", catpm.endpoint_path(kind: @kind, target: @target, operation: @operation),
+      method: :delete, class: "btn btn-danger",
+      data: { confirm: "Delete this endpoint and all its data? This cannot be undone." } %>
 </div>
 
 <% ep_params = { kind: @kind, target: @target, operation: @operation } %>
@@ -27,12 +32,12 @@
     <div class="value"><%= @count %></div>
   </div>
   <div class="card">
-    <div class="label">Avg Duration</div>
-    <div class="value"><%= format_duration(@avg_duration) %></div>
+    <div class="label">First Event</div>
+    <div class="value"><%= @first_event_at ? time_with_tooltip(@first_event_at) : "—" %></div>
   </div>
   <div class="card">
-    <div class="label">p95</div>
-    <div class="value"><%= @tdigest ? format_duration(@tdigest.percentile(0.95)) : "—" %></div>
+    <div class="label">Last Event</div>
+    <div class="value"><%= @last_event_at ? time_with_tooltip(@last_event_at) : "—" %></div>
   </div>
   <div class="card">
     <div class="label">Max</div>

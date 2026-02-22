@@ -23,11 +23,15 @@ module Catpm
         'MAX(duration_max)',
         'MIN(duration_min)',
         'SUM(failure_count)',
-        'SUM(success_count)'
+        'SUM(success_count)',
+        'MIN(bucket_start)',
+        'MAX(bucket_start)'
       )
 
       @count, @duration_sum, @duration_max, @duration_min, @failure_count, @success_count =
-        @aggregate.map { |v| v || 0 }
+        @aggregate[0..5].map { |v| v || 0 }
+      @first_event_at = @aggregate[6]
+      @last_event_at = @aggregate[7]
 
       @avg_duration = @count > 0 ? @duration_sum / @count : 0.0
       @failure_rate = @count > 0 ? @failure_count.to_f / @count : 0.0
@@ -58,6 +62,15 @@ module Catpm
       @error_samples = endpoint_samples.where(sample_type: 'error').order(recorded_at: :desc).limit(10)
 
       @active_error_count = Catpm::ErrorRecord.unresolved.count
+    end
+
+    def destroy
+      kind = params[:kind]
+      target = params[:target]
+      operation = params[:operation].presence || ''
+
+      Catpm::Bucket.where(kind: kind, target: target, operation: operation).destroy_all
+      redirect_to catpm.status_index_path, notice: 'Endpoint deleted'
     end
   end
 end
