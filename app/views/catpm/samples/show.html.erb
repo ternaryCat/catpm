@@ -34,48 +34,34 @@
   <% end %>
 </div>
 
-<%# ─── Request Context + Full JSON side by side ─── %>
+<%# ─── Request Context ─── %>
 <%
-  ctx_display = @context.except("segments", :segments, "segment_summary", :segment_summary, "segments_capped", :segments_capped, "backtrace", :backtrace)
+  ctx_display = @context.except("segments", :segments, "segment_summary", :segment_summary, "segments_capped", :segments_capped, "backtrace", :backtrace, "method", :method, "path", :path, "status", :status)
   ctx_flat = ctx_display.select { |_, v| !v.is_a?(Hash) && !v.is_a?(Array) }
   ctx_nested = ctx_display.select { |_, v| v.is_a?(Hash) || v.is_a?(Array) }
 %>
 
-<div class="sample-layout">
-  <% if ctx_display.any? %>
-    <div class="sample-sidebar">
-      <h2 style="margin-top:0">Request Context</h2>
-      <% if ctx_flat.any? %>
-        <div class="context-grid" style="margin-bottom:12px">
-          <% ctx_flat.each do |k, v| %>
-            <div class="ctx-key"><%= k %></div>
-            <div class="ctx-val"><%= v.to_s.truncate(200) %></div>
-          <% end %>
-        </div>
-      <% end %>
-      <% if ctx_nested.any? %>
-        <% ctx_nested.each do |k, v| %>
-          <details class="collapsible" open>
-            <summary><%= k %></summary>
-            <div class="details-body">
-              <pre class="mono" style="color:var(--text-1); white-space:pre-wrap; font-size:12px"><%= JSON.pretty_generate(v) rescue v.inspect %></pre>
-            </div>
-          </details>
-        <% end %>
+<% if ctx_display.any? %>
+  <h2>Request Context</h2>
+  <% if ctx_flat.any? %>
+    <div class="context-grid" style="margin-bottom:12px">
+      <% ctx_flat.each do |k, v| %>
+        <div class="ctx-key"><%= k %></div>
+        <div class="ctx-val"><%= v.to_s.truncate(200) %></div>
       <% end %>
     </div>
   <% end %>
-
-  <div class="sample-main">
-    <%# ─── Full JSON ─── %>
-    <details class="collapsible" open>
-      <summary>Full JSON</summary>
-      <div class="details-body">
-        <pre class="mono" style="color:var(--text-1); white-space:pre-wrap; font-size:12px; word-break:break-all"><%= JSON.pretty_generate(@context.except("segments", :segments)) rescue @context.inspect %></pre>
-      </div>
-    </details>
-  </div>
-</div>
+  <% if ctx_nested.any? %>
+    <% ctx_nested.each do |k, v| %>
+      <details class="collapsible" open>
+        <summary><%= k %></summary>
+        <div class="details-body">
+          <pre class="mono" style="color:var(--text-1); white-space:pre-wrap; font-size:12px"><%= JSON.pretty_generate(v) rescue v.inspect %></pre>
+        </div>
+      </details>
+    <% end %>
+  <% end %>
+<% end %>
 
 <%# ─── Time Breakdown (full width, above waterfall) ─── %>
 <% if @summary.any? %>
