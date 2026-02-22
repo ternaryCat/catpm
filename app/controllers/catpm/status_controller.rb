@@ -31,7 +31,9 @@ module Catpm
 
       recent_count = recent_buckets.sum(&:count)
       recent_failures = recent_buckets.sum(&:failure_count)
-      period_minutes = period.to_f / 60
+      earliest_bucket = recent_buckets.min_by(&:bucket_start)&.bucket_start
+      effective_period = earliest_bucket ? [[period, Time.current - earliest_bucket].min, 60].max : period
+      period_minutes = effective_period.to_f / 60
       @recent_avg_duration = recent_count > 0 ? (recent_buckets.sum(&:duration_sum) / recent_count).round(1) : 0.0
       @error_rate = recent_count > 0 ? (recent_failures.to_f / recent_count * 100).round(1) : 0.0
       @requests_per_min = (recent_count / period_minutes).round(1)
