@@ -1,6 +1,8 @@
 <div class="page-nav">
   <a href="<%= catpm.status_index_path %>"<%= ' class="active"'.html_safe if active == "performance" %>>Performance</a>
-  <a href="<%= catpm.events_path %>"<%= ' class="active"'.html_safe if active == "events" %>>Events</a>
+  <% if Catpm.config.events_enabled || Catpm::EventBucket.exists? %>
+    <a href="<%= catpm.events_path %>"<%= ' class="active"'.html_safe if active == "events" %>>Events</a>
+  <% end %>
   <a href="<%= catpm.errors_path %>"<%= ' class="active"'.html_safe if active == "errors" %>>Errors<% if @active_error_count.to_i > 0 %><span class="nav-count alert"><%= @active_error_count %></span><% end %></a>
   <a href="<%= catpm.system_index_path %>"<%= ' class="active"'.html_safe if active == "system" %>>System</a>
 </div>
