@@ -2,6 +2,8 @@
 
 module Catpm
   module SegmentSubscribers
+    MIN_INSTANTIATION_DURATION_MS = 0.1
+    CALLER_OFFSET = 4 # frames to skip to reach user code from this call site
     # Subscriber with start/finish callbacks so all segments (SQL, views, etc.)
     # fired during a controller action are automatically nested under the controller span.
     class ControllerSpanSubscriber
@@ -146,7 +148,7 @@ module Catpm
         return unless req_segments
 
         duration = event.duration
-        return if duration < 0.1 # skip trivial instantiations
+        return if duration < MIN_INSTANTIATION_DURATION_MS # skip trivial instantiations
 
         payload = event.payload
         record_count = payload[:record_count] || 0
@@ -230,7 +232,7 @@ module Catpm
       end
 
       def extract_source_location
-        locations = caller_locations(4, 50)
+        locations = caller_locations(CALLER_OFFSET, Catpm.config.caller_scan_depth)
         locations&.each do |loc|
           path = loc.path.to_s
           if Fingerprint.app_frame?(path)

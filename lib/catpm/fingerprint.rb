@@ -15,7 +15,7 @@ module Catpm
     def self.normalize_backtrace(backtrace)
       app_frames = backtrace
         .select { |line| app_frame?(line) }
-        .first(5)
+        .first(Catpm.config.max_fingerprint_app_frames)
         .map { |line| strip_line_number(line) }
 
       # If there are app frames, group by app code (like Sentry)
@@ -25,7 +25,7 @@ module Catpm
       # so the same bug is always one issue regardless of the caller.
       backtrace
         .reject { |line| line.include?('<internal:') }
-        .first(3)
+        .first(Catpm.config.max_fingerprint_gem_frames)
         .map { |line| strip_line_number(line) }
         .join("\n")
     end

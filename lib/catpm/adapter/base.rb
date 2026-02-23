@@ -3,6 +3,9 @@
 module Catpm
   module Adapter
     module Base
+      MINUTE_BUCKET_RETENTION = 48 * 3600
+      HOUR_BUCKET_RETENTION = 90 * 86400
+      DAY_BUCKET_RETENTION = 2 * 365 * 86400
       def persist_buckets(aggregated_buckets)
         raise NotImplementedError
       end
@@ -66,7 +69,8 @@ module Catpm
 
       def merge_contexts(existing_contexts, new_contexts)
         combined = (existing_contexts + new_contexts)
-        combined.last(Catpm.config.max_error_contexts)
+        max = Catpm.config.max_error_contexts
+        max ? combined.last(max) : combined
       end
 
       # Merge new occurrence timestamps into the multi-resolution bucket structure.
@@ -90,9 +94,9 @@ module Catpm
 
         # Compact old entries
         now = Time.current.to_i
-        cutoff_m = now - 48 * 3600
-        cutoff_h = now - 90 * 86400
-        cutoff_d = now - 2 * 365 * 86400
+        cutoff_m = now - MINUTE_BUCKET_RETENTION
+        cutoff_h = now - HOUR_BUCKET_RETENTION
+        cutoff_d = now - DAY_BUCKET_RETENTION
 
         buckets['m'].reject! { |k, _| k.to_i < cutoff_m }
         buckets['h'].reject! { |k, _| k.to_i < cutoff_h }

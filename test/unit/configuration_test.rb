@@ -36,8 +36,14 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 60, config.circuit_breaker_recovery_timeout
     assert_equal 5_000, config.sqlite_busy_timeout
     assert_equal 100, config.persistence_batch_size
-    assert_equal 30, config.backtrace_lines
+    assert_nil config.backtrace_lines
     assert_equal 5, config.shutdown_timeout
+    assert_equal({ medium: 1.hour, hourly: 24.hours, daily: 1.week, weekly: 90.days }, config.downsampling_thresholds)
+    assert_equal 200, config.max_error_detail_length
+    assert_equal 5, config.max_fingerprint_app_frames
+    assert_equal 3, config.max_fingerprint_gem_frames
+    assert_equal 1_000, config.cleanup_batch_size
+    assert_equal 50, config.caller_scan_depth
   end
 
   test 'configure block sets values' do

@@ -1,78 +1,88 @@
 # frozen_string_literal: true
 
 Catpm.configure do |config|
+  # === Enable/Disable ===
+  # config.enabled = Rails.env.production? || Rails.env.staging?
+
   # === Security ===
-  # Protect the dashboard with HTTP Basic Auth or a custom policy.
-  # If neither is configured, the dashboard is accessible to everyone.
-  #
   # config.http_basic_auth_user = ENV["CATPM_USER"]
   # config.http_basic_auth_password = ENV["CATPM_PASSWORD"]
   # config.access_policy = ->(request) { request.env["warden"].user&.admin? }
 
   # === PII Filtering ===
-  # Rails' filter_parameters are inherited automatically.
-  # Add extra patterns here:
-  #
   # config.additional_filter_parameters = [:card_number, :ssn]
 
   # === Instrumentation ===
-  #
-  config.instrument_http = true              # Track HTTP requests (default: true)
-  config.instrument_jobs = false             # Track ActiveJob (default: false)
-  config.instrument_segments = true          # Track SQL/view/cache segments (default: true)
-  # config.track_own_requests = false           # Track catpm dashboard requests (default: false)
-  # config.instrument_net_http = false         # Patch Net::HTTP for outbound tracking (default: false)
-  # config.instrument_middleware_stack = false # Decompose middleware into per-middleware segments (default: false)
-  # config.max_segments_per_request = 50       # Cap segments per request (keeps slowest)
-  # config.segment_source_threshold = 0.0      # ms — capture caller_locations above this (raise to reduce overhead)
-  # config.max_sql_length = 200                # Truncate SQL queries to this length
-  # config.slow_threshold = 500                # ms — threshold for slow samples (all kinds)
-  # config.slow_threshold_per_kind = {         # Override per kind
-  #   http: 500,
-  #   job: 5_000,
-  #   custom: 1_000
-  # }
-  # config.ignored_targets = [                 # Patterns to exclude from tracking
-  #   "HealthcheckController#index",
-  #   "/assets/*",
-  # ]
+  config.instrument_http = true
+  config.instrument_jobs = false
+  config.instrument_segments = true
+  # config.instrument_net_http = false
+  # config.instrument_middleware_stack = false
+  # config.instrument_stack_sampler = false
+  # config.track_own_requests = false
+
+  # === Auto-instrumentation ===
+  # config.service_base_classes = nil                  # nil = auto-detect (ApplicationService, BaseService)
+  # config.auto_instrument_methods = []                # e.g. ["Worker#process", "Gateway.charge"]
+
+  # === Segments ===
+  # config.max_segments_per_request = 50               # nil = unlimited
+  # config.segment_source_threshold = 0.0              # ms — capture caller_locations above this
+  # config.max_sql_length = 200                        # nil = no truncation
+  # config.slow_threshold = 500                        # ms
+  # config.slow_threshold_per_kind = {}                # { http: 500, job: 5_000, custom: 1_000 }
+  # config.ignored_targets = []
+
+  # === Stack Sampling ===
+  # config.stack_sample_interval = 0.005               # seconds (5ms)
+  # config.max_stack_samples_per_request = 200         # nil = unlimited
 
   # === Sampling ===
-  #
-  # config.random_sample_rate = 20                   # 1 in N requests sampled randomly
-  # config.max_random_samples_per_endpoint = 5       # Random samples kept per endpoint
-  # config.max_slow_samples_per_endpoint = 5         # Slow samples kept per endpoint
+  # config.random_sample_rate = 20                     # 1 in N requests sampled randomly
+  # config.max_random_samples_per_endpoint = 5         # nil = unlimited
+  # config.max_slow_samples_per_endpoint = 5           # nil = unlimited
+  # config.max_error_samples_per_fingerprint = 20      # nil = unlimited
 
-  # === Tuning ===
-  #
-  # config.retention_period = nil                    # nil = keep forever (default); set to e.g. 1.year to delete older data
-  # config.max_buffer_memory = 32.megabytes          # Maximum in-memory buffer size
-  # config.flush_interval = 30                       # seconds
-  # config.flush_jitter = 5                          # +/- seconds random offset per cycle
-  # config.max_error_contexts = 5                    # Contexts kept per error fingerprint
-  # config.cleanup_interval = 1.hour                 # How often to run downsampling
-  # config.persistence_batch_size = 100              # Records per DB batch operation
+  # === Errors ===
+  # config.max_error_contexts = 5                      # nil = unlimited
+  # config.backtrace_lines = nil
+
+  # === Events ===
+  # config.events_enabled = false
+  # config.events_max_samples_per_name = 20            # nil = unlimited
+
+  # === Buffering & Flushing ===
+  # config.max_buffer_memory = 8.megabytes
+  # config.flush_interval = 30                         # seconds
+  # config.flush_jitter = 5                            # ±seconds
+  # config.persistence_batch_size = 100
+
+  # === Data Retention ===
+  # config.retention_period = nil                      # nil = keep forever
+  # config.cleanup_interval = 1.hour
 
   # === Downsampling ===
-  # Data is kept forever with progressively coarser resolution:
-  # - Last hour: 1-minute buckets
-  # - 1h–24h: 5-minute buckets
-  # - 1d–1w: 1-hour buckets
-  # - 1w–3mo: 1-day buckets
-  # - Older than 3 months: 1-week buckets
-  #
   # config.bucket_sizes = { recent: 1.minute, medium: 5.minutes, hourly: 1.hour, daily: 1.day, weekly: 1.week }
+  # config.downsampling_thresholds = {                 # Age before tier is merged into the next coarser tier
+  #   medium: 1.hour,
+  #   hourly: 24.hours,
+  #   daily:  1.week,
+  #   weekly: 90.days
+  # }
+
+  # === Database ===
+  # config.sqlite_busy_timeout = 5_000                 # ms
+
+  # === Circuit Breaker ===
+  # config.circuit_breaker_failure_threshold = 5
+  # config.circuit_breaker_recovery_timeout = 60       # seconds
 
   # === Advanced ===
-  #
-  # config.circuit_breaker_failure_threshold = 5     # Failures before circuit opens
-  # config.circuit_breaker_recovery_timeout = 60     # seconds before retry
-  # config.sqlite_busy_timeout = 5_000               # ms — SQLite lock wait
-  # config.backtrace_lines = 10                      # Backtrace lines in error contexts
-  # config.shutdown_timeout = 5                      # seconds — graceful shutdown wait
+  # config.shutdown_timeout = 5                        # seconds
+  # config.max_error_detail_length = 200               # truncate error detail segments
+  # config.max_fingerprint_app_frames = 5              # app frames used for error fingerprint
+  # config.max_fingerprint_gem_frames = 3              # gem frames used when no app frames
+  # config.cleanup_batch_size = 1_000                  # rows per cleanup batch
+  # config.caller_scan_depth = 50                      # max frames to scan for app code
   # config.error_handler = ->(e) { Rails.logger.error("[catpm] #{e.message}") }
-
-  # === Enable/Disable ===
-  #
-  # config.enabled = Rails.env.production? || Rails.env.staging?
 end

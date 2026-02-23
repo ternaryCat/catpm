@@ -2,6 +2,9 @@
 
 module Catpm
   module Collector
+    SYNTHETIC_MIDDLEWARE_OFFSET_MS = 0.5
+    MIN_GAP_MS = 1.0
+
     class << self
       def process_action_controller(event)
         return unless Catpm.enabled?
@@ -65,7 +68,7 @@ module Catpm
             if ctrl_idx
               has_real_middleware = segments.any? { |s| s[:type] == 'middleware' }
               ctrl_offset = (segments[ctrl_idx][:offset] || 0.0).to_f
-              if ctrl_offset > 0.5 && !has_real_middleware
+              if ctrl_offset > SYNTHETIC_MIDDLEWARE_OFFSET_MS && !has_real_middleware
                 middleware_seg = {
                   type: 'middleware',
                   detail: 'Middleware Stack',
@@ -98,7 +101,7 @@ module Catpm
               end
               gap = ctrl_dur - child_dur
 
-              if gap > 1.0
+              if gap > MIN_GAP_MS
                 inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
               end
             end
@@ -119,7 +122,7 @@ module Catpm
 
               context[:segments] << {
                 type: 'error',
-                detail: "#{payload[:exception].first}: #{payload[:exception].last}".truncate(200),
+                detail: "#{payload[:exception].first}: #{payload[:exception].last}".truncate(Catpm.config.max_error_detail_length),
                 source: payload[:exception_object]&.backtrace&.first,
                 duration: 0,
                 offset: error_offset,
@@ -253,7 +256,7 @@ module Catpm
               end
               gap = ctrl_dur - child_dur
 
-              if gap > 1.0
+              if gap > MIN_GAP_MS
                 inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
               end
             end
@@ -274,7 +277,7 @@ module Catpm
 
               context[:segments] << {
                 type: 'error',
-                detail: "#{error.class.name}: #{error.message}".truncate(200),
+                detail: "#{error.class.name}: #{error.message}".truncate(Catpm.config.max_error_detail_length),
                 source: error.backtrace&.first,
                 duration: 0,
                 offset: error_offset,
@@ -338,7 +341,8 @@ module Catpm
         # Filling phase: always sample until endpoint has enough random samples
         endpoint_key = [kind.to_s, target, operation.to_s]
         count = random_sample_counts[endpoint_key]
-        if count < Catpm.config.max_random_samples_per_endpoint
+        max_random = Catpm.config.max_random_samples_per_endpoint
+        if max_random.nil? || count < max_random
           random_sample_counts[endpoint_key] = count + 1
           return 'random'
         end
@@ -374,7 +378,7 @@ module Catpm
           end
 
           remaining = gap - sampler_dur
-          if remaining > 1.0
+          if remaining > MIN_GAP_MS
             segments << {
               type: 'other',
               detail: 'Untracked',

@@ -3,6 +3,8 @@
 module Catpm
   class StackSampler
     MS_PER_SECOND = 1000.0
+    MIN_SEGMENT_DURATION_MS = 1.0
+    SAMPLING_THREAD_PRIORITY = -1
 
     # Single global thread that samples all active requests.
     # Avoids creating a thread per request.
@@ -33,7 +35,7 @@ module Catpm
             sample_all
           end
         end
-        @thread.priority = -1
+        @thread.priority = SAMPLING_THREAD_PRIORITY
       end
 
       def sample_all
@@ -118,7 +120,7 @@ module Catpm
 
       groups.filter_map do |group|
         duration = estimate_duration(group)
-        next if duration < 1.0
+        next if duration < MIN_SEGMENT_DURATION_MS
 
         offset = ((group[:start_time] - @request_start) * MS_PER_SECOND).round(2)
         app_frame = group[:app_frame]
@@ -205,7 +207,7 @@ module Catpm
           (span[:end_time] - span[:start_time]) * MS_PER_SECOND,
           span[:count] * Catpm.config.stack_sample_interval * MS_PER_SECOND
         ].max
-        next if duration < 1.0
+        next if duration < MIN_SEGMENT_DURATION_MS
 
         frame = span[:frame]
         path = frame.path.to_s

@@ -36,7 +36,7 @@ module Catpm
         @tracked_ranges << [started_at, started_at + duration / 1000.0]
       end
 
-      if @segments.size < @max_segments
+      if @max_segments.nil? || @segments.size < @max_segments
         @segments << segment
       else
         @overflow = true
@@ -54,7 +54,7 @@ module Catpm
       segment[:offset] = offset if offset
       segment[:parent_index] = @span_stack.last if @span_stack.any?
 
-      return nil if @segments.size >= @max_segments
+      return nil if @max_segments && @segments.size >= @max_segments
 
       index = @segments.size
       @segments << segment

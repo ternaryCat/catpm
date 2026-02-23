@@ -43,7 +43,13 @@ module Catpm
                   :events_max_samples_per_name,
                   :track_own_requests,
                   :stack_sample_interval,
-                  :max_stack_samples_per_request
+                  :max_stack_samples_per_request,
+                  :downsampling_thresholds,
+                  :max_error_detail_length,
+                  :max_fingerprint_app_frames,
+                  :max_fingerprint_gem_frames,
+                  :cleanup_batch_size,
+                  :caller_scan_depth
 
     def initialize
       @enabled = true
@@ -88,6 +94,17 @@ module Catpm
       @track_own_requests = false
       @stack_sample_interval = 0.005 # seconds (5ms)
       @max_stack_samples_per_request = 200
+      @downsampling_thresholds = {
+        medium: 1.hour,
+        hourly: 24.hours,
+        daily: 1.week,
+        weekly: 90.days
+      }
+      @max_error_detail_length = 200
+      @max_fingerprint_app_frames = 5
+      @max_fingerprint_gem_frames = 3
+      @cleanup_batch_size = 1_000
+      @caller_scan_depth = 50
     end
 
     def slow_threshold_for(kind)

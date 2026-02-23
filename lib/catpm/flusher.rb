@@ -2,6 +2,8 @@
 
 module Catpm
   class Flusher
+    ERROR_LOG_BACKTRACE_LINES = 5
+
     attr_reader :running
 
     def initialize(buffer:, interval: nil, jitter: nil)
@@ -104,7 +106,7 @@ module Catpm
       events&.each { |ev| @buffer.push(ev) }
       @circuit.record_failure
       Catpm.config.error_handler.call(e)
-      Rails.logger.error("[catpm] flush error: #{e.class}: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+      Rails.logger.error("[catpm] flush error: #{e.class}: #{e.message}\n#{e.backtrace&.first(ERROR_LOG_BACKTRACE_LINES)&.join("\n")}")
     end
 
     def reset!
@@ -190,7 +192,8 @@ module Catpm
           error[:last_occurred_at] = [ error[:last_occurred_at], event.started_at ].max
           error[:occurrence_times] << event.started_at
 
-          if error[:new_contexts].size < Catpm.config.max_error_contexts
+          max_ctx = Catpm.config.max_error_contexts
+          if max_ctx.nil? || error[:new_contexts].size < max_ctx
             error[:new_contexts] << build_error_context(event)
           end
         end
@@ -254,31 +257,40 @@ module Catpm
 
         case sample[:sample_type]
         when 'random'
-          cache_key = [kind, target, operation, 'random']
-          if (counts_cache[cache_key] || 0) >= Catpm.config.max_random_samples_per_endpoint
-            oldest = Catpm::Sample.joins(:bucket)
-              .where(catpm_buckets: { kind: kind, target: target, operation: operation })
-              .where(sample_type: 'random').order(recorded_at: :asc).first
-            oldest&.destroy
+          max_random = Catpm.config.max_random_samples_per_endpoint
+          if max_random
+            cache_key = [kind, target, operation, 'random']
+            if (counts_cache[cache_key] || 0) >= max_random
+              oldest = Catpm::Sample.joins(:bucket)
+                .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+                .where(sample_type: 'random').order(recorded_at: :asc).first
+              oldest&.destroy
+            end
           end
         when 'slow'
-          cache_key = [kind, target, operation, 'slow']
-          if (counts_cache[cache_key] || 0) >= Catpm.config.max_slow_samples_per_endpoint
-            weakest = Catpm::Sample.joins(:bucket)
-              .where(catpm_buckets: { kind: kind, target: target, operation: operation })
-              .where(sample_type: 'slow').order(duration: :asc).first
-            if weakest && sample[:duration] > weakest.duration
-              weakest.destroy
-            else
-              sample[:_skip] = true
+          max_slow = Catpm.config.max_slow_samples_per_endpoint
+          if max_slow
+            cache_key = [kind, target, operation, 'slow']
+            if (counts_cache[cache_key] || 0) >= max_slow
+              weakest = Catpm::Sample.joins(:bucket)
+                .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+                .where(sample_type: 'slow').order(duration: :asc).first
+              if weakest && sample[:duration] > weakest.duration
+                weakest.destroy
+              else
+                sample[:_skip] = true
+              end
             end
           end
         when 'error'
-          fp = sample[:error_fingerprint]
-          if fp && (error_counts[fp] || 0) >= Catpm.config.max_error_samples_per_fingerprint
-            oldest = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
-              .order(recorded_at: :asc).first
-            oldest&.destroy
+          max_err = Catpm.config.max_error_samples_per_fingerprint
+          if max_err
+            fp = sample[:error_fingerprint]
+            if fp && (error_counts[fp] || 0) >= max_err
+              oldest = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
+                .order(recorded_at: :asc).first
+              oldest&.destroy
+            end
           end
         end
       end
@@ -335,7 +347,7 @@ module Catpm
 
         max = Catpm.config.events_max_samples_per_name
         if event.payload.any?
-          if sample_counts[event.name] < max
+          if max.nil? || sample_counts[event.name] < max
             samples << { name: event.name, payload: event.payload, recorded_at: event.recorded_at }
             sample_counts[event.name] += 1
           elsif rand(Catpm.config.random_sample_rate) == 0
@@ -357,41 +369,42 @@ module Catpm
 
     def downsample_buckets
       bucket_sizes = Catpm.config.bucket_sizes
+      thresholds = Catpm.config.downsampling_thresholds
       adapter = Catpm::Adapter.current
 
       # Phase 1: Merge 1-minute buckets older than 1 hour into 5-minute buckets
       downsample_tier(
         target_interval: bucket_sizes[:medium],
-        age_threshold: 1.hour,
+        age_threshold: thresholds[:medium],
         adapter: adapter
       )
 
       # Phase 2: Merge 5-minute buckets older than 24 hours into 1-hour buckets
       downsample_tier(
         target_interval: bucket_sizes[:hourly],
-        age_threshold: 24.hours,
+        age_threshold: thresholds[:hourly],
         adapter: adapter
       )
 
       # Phase 3: Merge 1-hour buckets older than 1 week into 1-day buckets
       downsample_tier(
         target_interval: bucket_sizes[:daily],
-        age_threshold: 1.week,
+        age_threshold: thresholds[:daily],
         adapter: adapter
       )
 
       # Phase 4: Merge 1-day buckets older than 3 months into 1-week buckets
       downsample_tier(
         target_interval: bucket_sizes[:weekly],
-        age_threshold: 90.days,
+        age_threshold: thresholds[:weekly],
         adapter: adapter
       )
 
       # Event buckets: same downsampling tiers
-      downsample_event_tier(target_interval: bucket_sizes[:medium], age_threshold: 1.hour, adapter: adapter)
-      downsample_event_tier(target_interval: bucket_sizes[:hourly], age_threshold: 24.hours, adapter: adapter)
-      downsample_event_tier(target_interval: bucket_sizes[:daily], age_threshold: 1.week, adapter: adapter)
-      downsample_event_tier(target_interval: bucket_sizes[:weekly], age_threshold: 90.days, adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:medium], age_threshold: thresholds[:medium], adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:hourly], age_threshold: thresholds[:hourly], adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:daily], age_threshold: thresholds[:daily], adapter: adapter)
+      downsample_event_tier(target_interval: bucket_sizes[:weekly], age_threshold: thresholds[:weekly], adapter: adapter)
     end
 
     def downsample_tier(target_interval:, age_threshold:, adapter:)
@@ -496,7 +509,7 @@ module Catpm
 
     def cleanup_expired_data
       cutoff = Catpm.config.retention_period.ago
-      batch_size = 1_000
+      batch_size = Catpm.config.cleanup_batch_size
 
       [ Catpm::Bucket, Catpm::Sample ].each do |model|
         time_column = model == Catpm::Sample ? :recorded_at : :bucket_start

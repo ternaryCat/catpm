@@ -152,8 +152,10 @@ module Catpm
 
   private
 
+  CALLER_OFFSET = 3 # frames to skip to reach user code from this call site
+
   def self.extract_trace_source
-    locations = caller_locations(3, 50)
+    locations = caller_locations(CALLER_OFFSET, Catpm.config.caller_scan_depth)
     locations&.each do |loc|
       path = loc.path.to_s
       if Fingerprint.app_frame?(path)
