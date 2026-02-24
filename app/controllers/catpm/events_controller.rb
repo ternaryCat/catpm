@@ -64,9 +64,10 @@ module Catpm
       # Sort (pinned always on top)
       @sort = %w[name total_count last_seen].include?(params[:sort]) ? params[:sort] : 'total_count'
       @dir = params[:dir] == 'asc' ? 'asc' : 'desc'
-      events_list = events_list.sort_by { |e| e[@sort.to_sym] || '' }
-      events_list = events_list.reverse if @dir == 'desc'
-      events_list = events_list.sort_by { |e| e[:pinned] ? 0 : 1 }
+      sorted = events_list.sort_by { |e| e[@sort.to_sym] || '' }
+      sorted = sorted.reverse if @dir == 'desc'
+      pinned, unpinned = sorted.partition { |e| e[:pinned] }
+      events_list = pinned + unpinned
 
       @total_event_names = events_list.size
 

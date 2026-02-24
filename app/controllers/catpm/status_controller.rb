@@ -85,9 +85,10 @@ module Catpm
       # Server-side sort (pinned always on top)
       @sort = %w[target total_count avg_duration max_duration total_failures last_seen].include?(params[:sort]) ? params[:sort] : 'last_seen'
       @dir = params[:dir] == 'asc' ? 'asc' : 'desc'
-      endpoints = endpoints.sort_by { |e| e[@sort.to_sym] || '' }
-      endpoints = endpoints.reverse if @dir == 'desc'
-      endpoints = endpoints.sort_by { |e| e[:pinned] ? 0 : 1 }
+      sorted = endpoints.sort_by { |e| e[@sort.to_sym] || '' }
+      sorted = sorted.reverse if @dir == 'desc'
+      pinned, unpinned = sorted.partition { |e| e[:pinned] }
+      endpoints = pinned + unpinned
 
       @total_endpoint_count = endpoints.size
 
