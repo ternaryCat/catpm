@@ -63,11 +63,13 @@
     <colgroup>
       <col style="width:120px">
       <col>
+      <col style="width:36px">
     </colgroup>
     <thead>
       <tr>
         <th>Recorded At</th>
         <th>Payload</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -86,6 +88,12 @@
             <% else %>
               <span class="text-muted">—</span>
             <% end %>
+          </td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center; vertical-align:top">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.destroy_sample_events_path(sample_id: sample.id) %>">Delete</button>
+            </div>
           </td>
         </tr>
       <% end %>

@@ -154,6 +154,16 @@ module Catpm
       end
     end
 
+    def destroy_sample
+      sample = Catpm::EventSample.find(params[:sample_id])
+      sample.destroy
+      if request.xhr?
+        render json: { deleted: true }
+      else
+        redirect_back fallback_location: catpm.events_path, notice: 'Sample deleted'
+      end
+    end
+
     def ignored
       @range, period, _bucket_seconds = helpers.parse_range(remembered_range)
       ignored_prefs = Catpm::EventPref.ignored

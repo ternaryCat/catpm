@@ -106,13 +106,21 @@ module Catpm
     def resolve
       error = Catpm::ErrorRecord.find(params[:id])
       error.resolve!
-      redirect_to catpm.error_path(error), notice: 'Marked as resolved'
+      if request.xhr?
+        render json: { resolved: true }
+      else
+        redirect_to catpm.error_path(error), notice: 'Marked as resolved'
+      end
     end
 
     def unresolve
       error = Catpm::ErrorRecord.find(params[:id])
       error.unresolve!
-      redirect_to catpm.error_path(error), notice: 'Reopened'
+      if request.xhr?
+        render json: { resolved: false }
+      else
+        redirect_to catpm.error_path(error), notice: 'Reopened'
+      end
     end
 
     def toggle_pin
@@ -128,7 +136,11 @@ module Catpm
     def destroy
       error = Catpm::ErrorRecord.find(params[:id])
       error.destroy!
-      redirect_to catpm.errors_path, notice: 'Error deleted'
+      if request.xhr?
+        render json: { deleted: true }
+      else
+        redirect_to catpm.errors_path, notice: 'Error deleted'
+      end
     end
 
     def resolve_all

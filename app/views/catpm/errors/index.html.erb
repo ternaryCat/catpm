@@ -35,6 +35,7 @@
         <th>Trend</th>
         <th><%= sort_header("Last Seen", "last_occurred_at", @sort, @dir, extra_params: extra) %></th>
         <% if @tab == "resolved" %><th>Resolved</th><% end %>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -48,6 +49,17 @@
           <td><%= trend_indicator(e) %></td>
           <td><%= time_with_tooltip(e.last_occurred_at) %></td>
           <% if @tab == "resolved" %><td><%= time_with_tooltip(e.resolved_at) %></td><% end %>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <% if e.resolved? %>
+                <button data-action="unresolve" data-url="<%= catpm.unresolve_error_path(e) %>">Reopen</button>
+              <% else %>
+                <button data-action="resolve" data-url="<%= catpm.resolve_error_path(e) %>">Resolve</button>
+              <% end %>
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.error_path(e) %>">Delete</button>
+            </div>
+          </td>
         </tr>
       <% end %>
     </tbody>

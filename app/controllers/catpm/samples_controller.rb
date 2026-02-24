@@ -17,7 +17,9 @@ module Catpm
       sample = Catpm::Sample.find(params[:id])
       bucket = sample.bucket
       sample.destroy
-      if bucket
+      if request.xhr?
+        render json: { deleted: true }
+      elsif bucket
         redirect_to catpm.endpoint_path(kind: bucket.kind, target: bucket.target, operation: bucket.operation), notice: 'Sample deleted'
       else
         redirect_to catpm.status_index_path, notice: 'Sample deleted'

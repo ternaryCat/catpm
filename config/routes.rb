@@ -10,7 +10,11 @@ Catpm::Engine.routes.draw do
   patch 'endpoint/ignore', to: 'endpoints#toggle_ignore', as: :endpoint_ignore
   get 'endpoints/ignored', to: 'endpoints#ignored', as: :ignored_endpoints
   resources :samples, only: [:show, :destroy]
-  resources :events, only: [:index, :show, :destroy], param: :name
+  resources :events, only: [:index, :show, :destroy], param: :name do
+    collection do
+      delete 'samples/:sample_id', to: 'events#destroy_sample', as: :destroy_sample
+    end
+  end
   patch 'events/:name/pin', to: 'events#toggle_pin', as: :event_pin
   patch 'events/:name/ignore', to: 'events#toggle_ignore', as: :event_ignore
   get 'events_ignored', to: 'events#ignored', as: :ignored_events

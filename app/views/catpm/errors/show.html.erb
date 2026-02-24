@@ -106,17 +106,24 @@
         <th>Status</th>
         <th>Target</th>
         <th>Segments</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       <% @samples.each do |sample| %>
         <% ctx = sample.parsed_context %>
-        <tr class="clickable-row" onclick="window.location='<%= catpm.sample_path(sample) %>';" style="cursor:pointer">
-          <td><%= time_with_tooltip(sample.recorded_at) %></td>
+        <tr class="linked">
+          <td><a href="<%= catpm.sample_path(sample) %>" class="row-link"><%= time_with_tooltip(sample.recorded_at) %></a></td>
           <td class="mono"><%= format_duration(sample.duration) %></td>
           <td><%= status_badge(ctx["status"] || ctx[:status]) %></td>
           <td class="mono"><%= sample.bucket&.target || "—" %></td>
           <td class="mono text-muted"><%= segment_count_summary(ctx["segment_summary"] || ctx[:segment_summary]).presence || "—" %></td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.sample_path(sample) %>">Delete</button>
+            </div>
+          </td>
         </tr>
       <% end %>
     </tbody>

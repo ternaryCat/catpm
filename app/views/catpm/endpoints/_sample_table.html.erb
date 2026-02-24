@@ -7,6 +7,7 @@
         <th>Duration</th>
         <th>Segments</th>
         <th>Time</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -24,6 +25,12 @@
             <% end %>
           </td>
           <td><%= time_with_tooltip(s.recorded_at) %></td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.sample_path(s) %>">Delete</button>
+            </div>
+          </td>
         </tr>
       <% end %>
     </tbody>

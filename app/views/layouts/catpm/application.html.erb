@@ -545,10 +545,14 @@
         if (action === 'ignore') {
           apiRequest(url, 'PATCH').then(function(data) { if (data.ignored && row) fadeOutRow(row); });
         } else if (action === 'delete') {
-          if (!confirm('Delete this endpoint and all its data?')) return;
+          if (!confirm('Delete this and all its data?')) return;
           apiRequest(url, 'DELETE').then(function(data) { if (data.deleted && row) fadeOutRow(row); });
         } else if (action === 'unignore') {
           apiRequest(url, 'PATCH').then(function(data) { if (!data.ignored && row) fadeOutRow(row); });
+        } else if (action === 'resolve') {
+          apiRequest(url, 'PATCH').then(function(data) { if (data.resolved && row) fadeOutRow(row); });
+        } else if (action === 'unresolve') {
+          apiRequest(url, 'PATCH').then(function(data) { if (!data.resolved && row) fadeOutRow(row); });
         }
         return;
       }
