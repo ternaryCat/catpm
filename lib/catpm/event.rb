@@ -2,8 +2,9 @@
 
 module Catpm
   class Event
-    OBJECT_OVERHEAD = 40 # bytes, Ruby object header
-    REF_SIZE = 8         # bytes, pointer on 64-bit
+    OBJECT_OVERHEAD = 40  # bytes, Ruby object header
+    REF_SIZE = 8          # bytes, pointer on 64-bit
+    HASH_ENTRY_SIZE = 80  # bytes, per key-value pair in a Hash (bucket + key obj + value obj)
     NUMERIC_FIELDS_SIZE = 64 # fixed numeric fields (duration, timestamps, etc.)
 
     attr_accessor :kind, :target, :operation, :duration, :started_at,
@@ -69,13 +70,28 @@ module Catpm
     def context_bytes
       return 0 if context.nil? || context.empty?
 
-      context.to_json.bytesize + REF_SIZE
+      estimate_hash_bytes(context)
     end
 
     def metadata_bytes
       return 0 if metadata.nil? || metadata.empty?
 
-      metadata.to_json.bytesize + REF_SIZE
+      estimate_hash_bytes(metadata)
+    end
+
+    def estimate_hash_bytes(obj)
+      case obj
+      when Hash
+        OBJECT_OVERHEAD + obj.sum { |k, v| HASH_ENTRY_SIZE + estimate_hash_bytes(k) + estimate_hash_bytes(v) }
+      when Array
+        OBJECT_OVERHEAD + obj.sum { |v| REF_SIZE + estimate_hash_bytes(v) }
+      when String
+        OBJECT_OVERHEAD + obj.bytesize
+      when Symbol, Integer, Float, TrueClass, FalseClass, NilClass
+        REF_SIZE
+      else
+        OBJECT_OVERHEAD + REF_SIZE
+      end
     end
   end
 end

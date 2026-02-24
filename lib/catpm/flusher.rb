@@ -365,6 +365,7 @@ module Catpm
       @last_cleanup_at = Time.now
       downsample_buckets
       cleanup_expired_data if Catpm.config.retention_period
+      Collector.reset_sample_counts!
     end
 
     def downsample_buckets

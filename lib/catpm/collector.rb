@@ -406,6 +406,10 @@ module Catpm
         @random_sample_counts ||= Hash.new(0)
       end
 
+      def reset_sample_counts!
+        @random_sample_counts = nil
+      end
+
       def inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
         sampler_groups = req_segments&.sampler_segments || []
 
