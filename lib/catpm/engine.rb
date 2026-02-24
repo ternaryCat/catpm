@@ -16,9 +16,9 @@ module Catpm
 
         if Catpm.config.instrument_middleware_stack
           app = Rails.application
-          names = app.middleware.filter_map { |m| m.name }.reject { |n| n.start_with?('Catpm::') }
-          names.reverse_each do |name|
-            app.middleware.insert_before(name, Catpm::MiddlewareProbe, name)
+          middlewares = app.middleware.reject { |m| m.name&.start_with?('Catpm::') }
+          middlewares.reverse_each do |middleware|
+            app.middleware.insert_before(middleware, Catpm::MiddlewareProbe, middleware.name)
           rescue ArgumentError, RuntimeError
             # Middleware not found in stack — skip
           end
