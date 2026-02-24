@@ -182,6 +182,23 @@ module Catpm
           "EXTRACT(EPOCH FROM bucket_start)::integer % #{interval.to_i} = 0"
         end
 
+        def table_sizes
+          ActiveRecord::Base.connection_pool.with_connection do |conn|
+            rows = conn.select_all(<<~SQL)
+              SELECT c.relname AS name,
+                     pg_total_relation_size(c.oid) AS total_bytes,
+                     pg_table_size(c.oid) AS table_bytes,
+                     pg_indexes_size(c.oid) AS index_bytes,
+                     c.reltuples::bigint AS row_estimate
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.relname LIKE 'catpm_%' AND c.relkind = 'r' AND n.nspname = 'public'
+              ORDER BY pg_total_relation_size(c.oid) DESC
+            SQL
+            rows.map(&:symbolize_keys)
+          end
+        end
+
         private
 
         def advisory_lock_key(identifier)
