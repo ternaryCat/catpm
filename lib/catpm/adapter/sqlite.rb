@@ -152,6 +152,35 @@ module Catpm
           "CAST(strftime('%s', bucket_start) AS INTEGER) % #{interval.to_i} = 0"
         end
 
+        def table_sizes
+          conn = ActiveRecord::Base.connection
+
+          tables = conn.select_values(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'catpm_%' ORDER BY name"
+          )
+
+          has_dbstat = begin
+            conn.select_value("SELECT 1 FROM dbstat LIMIT 1")
+            true
+          rescue StandardError
+            false
+          end
+
+          tables.map do |table|
+            row_count = conn.select_value("SELECT COUNT(*) FROM \"#{table}\"").to_i
+
+            total_bytes = if has_dbstat
+              objects = [table] + conn.select_values(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=#{conn.quote(table)}"
+              )
+              placeholders = objects.map { |n| conn.quote(n) }.join(',')
+              conn.select_value("SELECT SUM(pgsize) FROM dbstat WHERE name IN (#{placeholders})").to_i
+            end
+
+            { name: table, total_bytes: total_bytes, row_estimate: row_count }
+          end.sort_by { |r| -(r[:total_bytes] || 0) }
+        end
+
         private
 
         def with_write_lock(&block)

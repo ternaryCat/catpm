@@ -43,6 +43,53 @@
   </div>
 </div>
 
+<%# ─── Storage ─── %>
+<h2>Database Storage</h2>
+<%= section_description("Disk space used by catpm tables in your database.") %>
+
+<% total_bytes = @table_sizes.sum { |t| t[:total_bytes].to_i } %>
+<% has_bytes = @table_sizes.any? { |t| t[:total_bytes] } %>
+
+<% if has_bytes %>
+<div class="storage-total">
+  Total: <strong><%= number_to_human_size(total_bytes) %></strong>
+</div>
+<% end %>
+
+<div class="config-table">
+<div class="table-scroll">
+<table>
+  <thead>
+    <tr>
+      <th>Table</th>
+      <th style="text-align:right">Rows</th>
+      <% if has_bytes %>
+      <th style="text-align:right">Size</th>
+      <% end %>
+    </tr>
+  </thead>
+  <tbody>
+    <% @table_sizes.each do |t| %>
+    <tr>
+      <td class="mono"><%= t[:name] %></td>
+      <td class="mono" style="text-align:right"><%= number_with_delimiter(t[:row_estimate].to_i) %></td>
+      <% if has_bytes %>
+      <td class="mono" style="text-align:right"><%= number_to_human_size(t[:total_bytes].to_i) %></td>
+      <% end %>
+    </tr>
+    <% end %>
+    <% if has_bytes %>
+    <tr style="font-weight:600;border-top:2px solid var(--border)">
+      <td>Total</td>
+      <td class="mono" style="text-align:right"><%= number_with_delimiter(@table_sizes.sum { |t| t[:row_estimate].to_i }) %></td>
+      <td class="mono" style="text-align:right"><%= number_to_human_size(total_bytes) %></td>
+    </tr>
+    <% end %>
+  </tbody>
+</table>
+</div>
+</div>
+
 <%# ─── Configuration ─── %>
 <h2>Configuration</h2>
 <%= section_description("Current catpm settings. Configure via initializer.") %>

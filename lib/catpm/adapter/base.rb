@@ -49,6 +49,10 @@ module Catpm
         raise NotImplementedError
       end
 
+      def table_sizes
+        raise NotImplementedError
+      end
+
       def merge_metadata_sum(existing, incoming)
         existing = parse_json(existing)
         incoming = parse_json(incoming)

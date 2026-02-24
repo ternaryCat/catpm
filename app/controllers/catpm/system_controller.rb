@@ -9,6 +9,7 @@ module Catpm
       @config = Catpm.config
       @oldest_bucket = Catpm::Bucket.minimum(:bucket_start)
       @active_error_count = Catpm::ErrorRecord.unresolved.count
+      @table_sizes = Catpm::Adapter.current.table_sizes
     end
   end
 end
