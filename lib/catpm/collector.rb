@@ -45,6 +45,7 @@ module Catpm
 
           if req_segments
             segments = segment_data[:segments]
+            collapse_code_wrappers(segments)
 
             # Inject root request segment with full duration
             root_segment = {
@@ -227,6 +228,7 @@ module Catpm
 
           if req_segments && segment_data
             segments = segment_data[:segments]
+            collapse_code_wrappers(segments)
 
             # Inject root request segment
             root_segment = {
@@ -330,6 +332,55 @@ module Catpm
       end
 
       private
+
+      # Remove near-zero-duration "code" spans that merely wrap a "controller" span.
+      # This happens when CallTracer (TracePoint) captures a thin dispatch method
+      # (e.g. Telegram::WebhookController#process) whose :return fires before the
+      # ActiveSupport controller notification finishes.
+      # Mutates segments in place: removes the wrapper and re-indexes parent references.
+      def collapse_code_wrappers(segments)
+        # Identify code spans to collapse: near-zero duration wrapping a controller child
+        collapse = {}
+        segments.each_with_index do |seg, i|
+          next unless seg[:type] == 'code'
+          next unless (seg[:duration] || 0).to_f < 1.0
+
+          has_controller_child = segments.any? { |s| s[:parent_index] == i && s[:type] == 'controller' }
+          next unless has_controller_child
+
+          collapse[i] = seg[:parent_index]
+        end
+
+        return if collapse.empty?
+
+        # Reparent children of collapsed spans
+        segments.each do |seg|
+          pi = seg[:parent_index]
+          next unless pi && collapse.key?(pi)
+          new_parent = collapse[pi]
+          if new_parent.nil?
+            seg.delete(:parent_index)
+          else
+            seg[:parent_index] = new_parent
+          end
+        end
+
+        # Build old→new index mapping, remove collapsed spans
+        old_to_new = {}
+        kept = []
+        segments.each_with_index do |seg, i|
+          next if collapse.key?(i)
+          old_to_new[i] = kept.size
+          kept << seg
+        end
+
+        # Rewrite parent references to new indices
+        kept.each do |seg|
+          seg[:parent_index] = old_to_new[seg[:parent_index]] if seg[:parent_index]
+        end
+
+        segments.replace(kept)
+      end
 
       # Determine sample type at event creation time so only sampled events
       # carry full context in the buffer. Includes filling phase via

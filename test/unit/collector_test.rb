@@ -366,6 +366,79 @@ class CollectorTest < ActiveSupport::TestCase
     end
   end
 
+  test 'process_action_controller collapses near-zero code wrapper around controller span' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate CallTracer pushing a "code" span for a thin dispatch method (e.g. #process)
+    code_idx = req_segments.push_span(type: :code, detail: 'Telegram::WebhookController#process', started_at: start)
+    # Controller span pushed while code span is still on stack → controller is nested under code
+    ctrl_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'Telegram::WebhookController#message', started_at: ctrl_start)
+    # Code span popped early (TracePoint :return fires before controller notification finishes)
+    req_segments.pop_span(code_idx)
+    req_segments.add(type: :sql, duration: 5.0, detail: 'SELECT 1', started_at: ctrl_start)
+    sleep(0.01)
+    req_segments.pop_span(ctrl_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'Telegram::WebhookController', action: 'message',
+      method: 'POST', path: '/telegram/webhook', status: 200, duration: 23.66
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context['segments']
+
+    # The near-zero "code" wrapper should be collapsed — no code segments in output
+    code_segments = segments.select { |s| s[:type] == 'code' }
+    assert_empty code_segments, "Near-zero code wrapper should be collapsed, but found: #{code_segments.inspect}"
+
+    # Controller span should be present and parented under root request
+    ctrl_seg = segments.find { |s| s[:type] == 'controller' }
+    assert ctrl_seg, 'Controller span should be present'
+    assert_equal 0, ctrl_seg[:parent_index], 'Controller should be parented under root request'
+
+    # SQL should be parented under controller
+    sql_seg = segments.find { |s| s[:type] == 'sql' }
+    assert sql_seg, 'SQL span should be present'
+    ctrl_idx_final = segments.index(ctrl_seg)
+    assert_equal ctrl_idx_final, sql_seg[:parent_index], 'SQL should be parented under controller'
+  end
+
+  test 'process_action_controller preserves code spans with real duration' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate a code span with substantial duration — should NOT be collapsed
+    code_idx = req_segments.push_span(type: :code, detail: 'SlowService#call', started_at: start)
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'UsersController#index', started_at: start)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'SELECT 1', started_at: start)
+    sleep(0.01)
+    req_segments.pop_span(ctrl_idx)
+    req_segments.pop_span(code_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 50.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context['segments']
+
+    # Code span with real duration should be preserved
+    code_seg = segments.find { |s| s[:type] == 'code' }
+    assert code_seg, 'Code span with real duration should NOT be collapsed'
+    assert code_seg[:duration] >= 1.0, "Code span should have substantial duration, got #{code_seg[:duration]}"
+  end
+
   test 'process_active_job creates job event' do
     event = mock_job_event(
       job_class: 'SendEmailJob', job_id: 'abc-123',
