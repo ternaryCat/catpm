@@ -107,7 +107,7 @@ class ConfigurationTest < ActiveSupport::TestCase
   test 'rejects nil for required numeric settings' do
     config = Catpm.config
     %i[flush_interval slow_threshold max_buffer_memory random_sample_rate
-       persistence_batch_size shutdown_timeout max_sql_length].each do |attr|
+       persistence_batch_size shutdown_timeout].each do |attr|
       assert_raises(ArgumentError, "#{attr} should reject nil") { config.send(:"#{attr}=", nil) }
     end
   end
@@ -118,11 +118,13 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_raises(ArgumentError) { config.max_random_samples_per_endpoint = "5" }
   end
 
-  test 'allows nil for optional numeric settings (nil = unlimited)' do
+  test 'allows nil for optional numeric settings (nil = no limit)' do
     config = Catpm.config
     %i[max_random_samples_per_endpoint max_slow_samples_per_endpoint
        max_error_samples_per_fingerprint max_segments_per_request
-       retention_period backtrace_lines].each do |attr|
+       retention_period backtrace_lines max_sql_length max_error_contexts
+       events_max_samples_per_name max_stack_samples_per_request
+       max_error_detail_length caller_scan_depth].each do |attr|
       config.send(:"#{attr}=", nil)
       assert_nil config.send(attr), "#{attr} should accept nil"
     end

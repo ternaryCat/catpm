@@ -28,21 +28,21 @@ module Catpm
 
     # Numeric settings that must be positive numbers (nil not allowed)
     REQUIRED_NUMERIC = %i[
-      max_sql_length slow_threshold max_buffer_memory flush_interval
-      flush_jitter max_error_contexts random_sample_rate cleanup_interval
+      slow_threshold max_buffer_memory flush_interval flush_jitter
+      random_sample_rate cleanup_interval
       circuit_breaker_failure_threshold circuit_breaker_recovery_timeout
       sqlite_busy_timeout persistence_batch_size shutdown_timeout
-      events_max_samples_per_name stack_sample_interval
-      max_stack_samples_per_request max_error_detail_length
-      max_fingerprint_app_frames max_fingerprint_gem_frames
-      cleanup_batch_size caller_scan_depth segment_source_threshold
+      stack_sample_interval segment_source_threshold
     ].freeze
 
-    # Numeric settings where nil means "unlimited"
+    # Numeric settings where nil means "no limit" / "disabled"
     OPTIONAL_NUMERIC = %i[
       max_segments_per_request retention_period backtrace_lines
       max_random_samples_per_endpoint max_slow_samples_per_endpoint
-      max_error_samples_per_fingerprint
+      max_error_samples_per_fingerprint max_sql_length max_error_contexts
+      events_max_samples_per_name max_stack_samples_per_request
+      max_error_detail_length max_fingerprint_app_frames
+      max_fingerprint_gem_frames cleanup_batch_size caller_scan_depth
     ].freeze
 
     (REQUIRED_NUMERIC + OPTIONAL_NUMERIC).each do |attr|
