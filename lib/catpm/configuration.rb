@@ -49,7 +49,8 @@ module Catpm
                   :max_fingerprint_app_frames,
                   :max_fingerprint_gem_frames,
                   :cleanup_batch_size,
-                  :caller_scan_depth
+                  :caller_scan_depth,
+                  :instrument_call_tree
 
     def initialize
       @enabled = true
@@ -105,6 +106,7 @@ module Catpm
       @max_fingerprint_gem_frames = 3
       @cleanup_batch_size = 1_000
       @caller_scan_depth = 50
+      @instrument_call_tree = false
     end
 
     def slow_threshold_for(kind)

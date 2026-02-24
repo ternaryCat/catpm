@@ -44,6 +44,7 @@ class ConfigurationTest < ActiveSupport::TestCase
     assert_equal 3, config.max_fingerprint_gem_frames
     assert_equal 1_000, config.cleanup_batch_size
     assert_equal 50, config.caller_scan_depth
+    assert_equal false, config.instrument_call_tree
   end
 
   test 'configure block sets values' do

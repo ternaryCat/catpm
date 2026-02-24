@@ -83,6 +83,11 @@ module Catpm
       )
       Thread.current[:catpm_request_segments] = req_segments
       owns_segments = true
+
+      if config.instrument_call_tree
+        call_tracer = CallTracer.new(request_segments: req_segments)
+        call_tracer.start
+      end
     end
 
     if req_segments
@@ -100,6 +105,7 @@ module Catpm
       raise
     ensure
       duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time) * 1000.0
+      call_tracer&.stop
       req_segments&.pop_span(ctrl_idx) if ctrl_idx
       req_segments&.stop_sampler
 
