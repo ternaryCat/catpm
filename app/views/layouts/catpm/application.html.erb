@@ -3,6 +3,10 @@
 <head>
   <title>catpm<%= " — #{yield :title}" if content_for?(:title) %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" sizes="32x32" href="<%= image_path('catpm/favicon-32.png') %>">
+  <link rel="icon" type="image/png" sizes="512x512" href="<%= image_path('catpm/favicon-512.png') %>">
+  <link rel="icon" type="image/x-icon" href="<%= image_path('catpm/favicon.ico') %>">
+  <link rel="apple-touch-icon" href="<%= image_path('catpm/favicon-512.png') %>">
   <%= csrf_meta_tags %>
   <%= yield :head_extra if content_for?(:head_extra) %>
   <style>
