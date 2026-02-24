@@ -52,9 +52,13 @@ module Catpm
       # Endpoints — aggregated from the SAME time range as hero metrics
       grouped = recent_buckets.group_by { |b| [b.kind, b.target, b.operation] }
 
+      # Load endpoint preferences (pinned/ignored)
+      prefs = Catpm::EndpointPref.where('pinned = ? OR ignored = ?', true, true).index_by { |p| [p.kind, p.target, p.operation] }
+
       endpoints = grouped.map do |key, bs|
         kind, target, operation = key
         total_count = bs.sum(&:count)
+        pref = prefs[key]
         {
           kind: kind,
           target: target,
@@ -63,20 +67,27 @@ module Catpm
           avg_duration: total_count > 0 ? bs.sum(&:duration_sum) / total_count : 0.0,
           max_duration: bs.map(&:duration_max).max,
           total_failures: bs.sum(&:failure_count),
-          last_seen: bs.map(&:bucket_start).max
+          last_seen: bs.map(&:bucket_start).max,
+          pinned: pref&.pinned || false,
+          ignored: pref&.ignored || false
         }
       end
+
+      # Separate ignored endpoints
+      @ignored_endpoints = endpoints.select { |e| e[:ignored] }
+      endpoints = endpoints.reject { |e| e[:ignored] }
 
       # Kind filter (URL-based)
       @available_kinds = endpoints.map { |e| e[:kind] }.uniq.sort
       @kind_filter = params[:kind] if params[:kind].present? && @available_kinds.include?(params[:kind])
       endpoints = endpoints.select { |e| e[:kind] == @kind_filter } if @kind_filter
 
-      # Server-side sort
+      # Server-side sort (pinned always on top)
       @sort = %w[target total_count avg_duration max_duration total_failures last_seen].include?(params[:sort]) ? params[:sort] : 'last_seen'
       @dir = params[:dir] == 'asc' ? 'asc' : 'desc'
       endpoints = endpoints.sort_by { |e| e[@sort.to_sym] || '' }
       endpoints = endpoints.reverse if @dir == 'desc'
+      endpoints = endpoints.sort_by { |e| e[:pinned] ? 0 : 1 }
 
       @total_endpoint_count = endpoints.size
 

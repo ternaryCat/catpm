@@ -14,9 +14,13 @@
     <span class="sep">/</span>
     <span><%= @target %></span>
   </div>
-  <%= button_to "Delete Endpoint", catpm.endpoint_path(kind: @kind, target: @target, operation: @operation),
-      method: :delete, class: "btn btn-danger",
-      data: { confirm: "Delete this endpoint and all its data? This cannot be undone." } %>
+  <div style="display:flex; gap:6px; align-items:center">
+    <%= button_to @pref&.ignored ? "Unignore" : "Ignore", catpm.endpoint_ignore_path(kind: @kind, target: @target, operation: @operation),
+        method: :patch, class: "btn" %>
+    <%= button_to "Delete Endpoint", catpm.endpoint_path(kind: @kind, target: @target, operation: @operation),
+        method: :delete, class: "btn btn-danger",
+        data: { confirm: "Delete this endpoint and all its data? This cannot be undone." } %>
+  </div>
 </div>
 
 <% ep_params = { kind: @kind, target: @target, operation: @operation } %>

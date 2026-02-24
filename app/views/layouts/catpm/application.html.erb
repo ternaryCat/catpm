@@ -3,6 +3,7 @@
 <head>
   <title>catpm<%= " — #{yield :title}" if content_for?(:title) %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <%= csrf_meta_tags %>
   <%= yield :head_extra if content_for?(:head_extra) %>
   <style>
     /* ─── Design Tokens — Light Theme ─── */
@@ -199,6 +200,22 @@
     .btn-primary:hover { background: var(--border); }
     .btn-danger { background: var(--bg-0); color: var(--text-2); border-color: var(--border); }
     .btn-danger:hover { background: #ffebe9; color: var(--red); border-color: #ffcecb; }
+
+    /* ─── Star Button ─── */
+    .star-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--text-2); padding: 0; line-height: 1; transition: color 0.15s; }
+    .star-btn:hover { color: #e3b341; }
+    .star-btn.pinned { color: #e3b341; }
+
+    /* ─── Action Menu (3-dot) ─── */
+    .action-menu-btn { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--text-2); padding: 2px 6px; line-height: 1; border-radius: 4px; transition: background 0.1s, color 0.1s; }
+    .action-menu-btn:hover, .action-menu-btn.active { color: var(--text-0); background: var(--bg-2); }
+    .action-menu { display: none; }
+    .action-menu-overlay { position: fixed; background: var(--bg-0); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.08); z-index: 9999; min-width: 160px; padding: 4px 0; }
+    .action-menu-overlay button { display: block; width: 100%; text-align: left; padding: 8px 14px; border: none; background: none; cursor: pointer; font-size: 13px; color: var(--text-0); transition: background 0.1s; }
+    .action-menu-overlay button:hover { background: var(--bg-1); }
+    .action-menu-overlay .menu-danger { color: var(--red); }
+    .action-menu-overlay .menu-danger:hover { background: #ffebe9; }
+
     .copy-btn { background: var(--bg-1); border: 1px solid var(--border); color: var(--text-2); padding: 3px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; }
     .copy-btn:hover { color: var(--text-0); background: var(--bg-2); }
 
@@ -421,6 +438,119 @@
         var search = document.querySelector('.search-input');
         if (search) search.focus();
       }
+    });
+
+    /* ─── AJAX Helpers ─── */
+    function csrfToken() {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      return meta ? meta.getAttribute('content') : '';
+    }
+
+    function apiRequest(url, method) {
+      return fetch(url, {
+        method: method,
+        headers: { 'X-CSRF-Token': csrfToken(), 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      }).then(function(r) { return r.json(); });
+    }
+
+    function fadeOutRow(row) {
+      row.style.transition = 'opacity 0.3s';
+      row.style.opacity = '0';
+      setTimeout(function() { row.remove(); }, 300);
+    }
+
+    var _actionMenu = null;
+    function closeActionMenu() {
+      if (_actionMenu) {
+        _actionMenu.overlay.remove();
+        _actionMenu.btn.classList.remove('active');
+        _actionMenu = null;
+      }
+    }
+
+    document.addEventListener('click', function(e) {
+      /* Star (pin) toggle */
+      var starBtn = e.target.closest('.star-btn');
+      if (starBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        apiRequest(starBtn.dataset.pinUrl, 'PATCH').then(function(data) {
+          starBtn.classList.toggle('pinned', data.pinned);
+          starBtn.innerHTML = data.pinned ? '\u2605' : '\u2606';
+        });
+        return;
+      }
+
+      /* Pin text button (endpoint page) */
+      var pinTextBtn = e.target.closest('[data-pin-text]');
+      if (pinTextBtn) {
+        e.preventDefault();
+        apiRequest(pinTextBtn.dataset.pinUrl, 'PATCH').then(function(data) {
+          pinTextBtn.textContent = data.pinned ? 'Unpin' : 'Pin';
+          pinTextBtn.classList.toggle('btn-primary', data.pinned);
+        });
+        return;
+      }
+
+      /* 3-dot menu toggle — portal overlay on body */
+      var menuBtn = e.target.closest('.action-menu-btn');
+      if (menuBtn) {
+        e.stopPropagation();
+        closeActionMenu();
+        var source = menuBtn.nextElementSibling;
+        if (!source) return;
+        var row = menuBtn.closest('tr');
+        var rect = menuBtn.getBoundingClientRect();
+
+        var overlay = document.createElement('div');
+        overlay.className = 'action-menu-overlay';
+        source.querySelectorAll('button').forEach(function(src) {
+          var item = document.createElement('button');
+          item.textContent = src.textContent;
+          if (src.classList.contains('menu-danger')) item.className = 'menu-danger';
+          item.dataset.action = src.dataset.action;
+          item.dataset.url = src.dataset.url;
+          overlay.appendChild(item);
+        });
+
+        document.body.appendChild(overlay);
+        menuBtn.classList.add('active');
+        _actionMenu = { overlay: overlay, row: row, btn: menuBtn };
+
+        overlay.style.right = (window.innerWidth - rect.right) + 'px';
+        overlay.style.top = (rect.bottom + 4) + 'px';
+        requestAnimationFrame(function() {
+          var mr = overlay.getBoundingClientRect();
+          if (mr.bottom > window.innerHeight - 8) {
+            overlay.style.top = (rect.top - mr.height - 4) + 'px';
+          }
+        });
+        return;
+      }
+
+      /* Menu overlay action clicks */
+      var overlayBtn = e.target.closest('.action-menu-overlay button');
+      if (overlayBtn) {
+        e.stopPropagation();
+        var action = overlayBtn.dataset.action;
+        var url = overlayBtn.dataset.url;
+        var row = _actionMenu ? _actionMenu.row : null;
+        closeActionMenu();
+
+        if (action === 'ignore') {
+          apiRequest(url, 'PATCH').then(function(data) { if (data.ignored && row) fadeOutRow(row); });
+        } else if (action === 'delete') {
+          if (!confirm('Delete this endpoint and all its data?')) return;
+          apiRequest(url, 'DELETE').then(function(data) { if (data.deleted && row) fadeOutRow(row); });
+        } else if (action === 'unignore') {
+          apiRequest(url, 'PATCH').then(function(data) { if (!data.ignored && row) fadeOutRow(row); });
+        }
+        return;
+      }
+
+      /* Close menu on outside click */
+      closeActionMenu();
     });
   </script>
 </body>

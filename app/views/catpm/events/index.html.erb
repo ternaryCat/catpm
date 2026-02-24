@@ -3,6 +3,11 @@
 
 <%= render "catpm/shared/page_nav", active: "events" %>
 
+<div class="tabs">
+  <a href="<%= catpm.events_path(range: @range) %>" class="tab active">Active (<%= @total_event_names %>)</a>
+  <a href="<%= catpm.ignored_events_path %>" class="tab">Ignored (<%= @ignored_events.size %>)</a>
+</div>
+
 <%# ─── Time Range ─── %>
 <div class="time-range">
   <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
@@ -34,22 +39,24 @@
 
 <%# ─── Events Table ─── %>
 <h2>Events <% if @total_event_names > @events.size %><span class="text-muted" style="font-weight:400; font-size:13px">(showing <%= @events.size %> of <%= @total_event_names %>)</span><% end %></h2>
-<%= section_description("Events tracked in the selected time range.") %>
 
 <% if @events.any? %>
   <div class="table-scroll">
   <table>
     <thead>
       <tr>
+        <th></th>
         <th><%= sort_header("Name", "name", @sort, @dir, extra_params: { range: @range }) %></th>
         <th><%= sort_header("Count", "total_count", @sort, @dir, extra_params: { range: @range }) %></th>
         <th>Trend</th>
         <th><%= sort_header("Last Seen", "last_seen", @sort, @dir, extra_params: { range: @range }) %></th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       <% @events.each do |ev| %>
         <tr class="linked">
+          <td style="position:relative; z-index:1; width:28px; padding:4px 2px; text-align:center"><button class="star-btn<%= ' pinned' if ev[:pinned] %>" data-pin-url="<%= catpm.event_pin_path(name: ev[:name]) %>"><%= ev[:pinned] ? "&#x2605;".html_safe : "&#x2606;".html_safe %></button></td>
           <td>
             <a href="<%= catpm.event_path(name: ev[:name], range: @range) %>" class="row-link">
               <span class="badge badge-event"><%= ev[:name] %></span>
@@ -58,6 +65,13 @@
           <td><%= ev[:total_count] %></td>
           <td><%= sparkline_svg(ev[:sparkline], width: 120, height: 32, color: "var(--accent)", time_labels: @sparkline_times) %></td>
           <td><%= time_with_tooltip(ev[:last_seen]) %></td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button data-action="ignore" data-url="<%= catpm.event_ignore_path(name: ev[:name]) %>">Ignore</button>
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.event_path(name: ev[:name]) %>">Delete</button>
+            </div>
+          </td>
         </tr>
       <% end %>
     </tbody>

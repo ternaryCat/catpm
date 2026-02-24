@@ -6,14 +6,19 @@
   &middot; <%= format_duration(@sample.duration) %>
 <% end %>
 
-<div class="breadcrumbs">
-  <a href="<%= catpm.status_index_path %>">Overview</a>
-  <% if @bucket %>
+<div class="breadcrumbs" style="display:flex; align-items:center; justify-content:space-between">
+  <div>
+    <a href="<%= catpm.status_index_path %>">Overview</a>
+    <% if @bucket %>
+      <span class="sep">/</span>
+      <a href="<%= catpm.endpoint_path(kind: @bucket.kind, target: @bucket.target, operation: @bucket.operation) %>"><%= @bucket.target %></a>
+    <% end %>
     <span class="sep">/</span>
-    <a href="<%= catpm.endpoint_path(kind: @bucket.kind, target: @bucket.target, operation: @bucket.operation) %>"><%= @bucket.target %></a>
-  <% end %>
-  <span class="sep">/</span>
-  <span>Sample #<%= @sample.id %></span>
+    <span>Sample #<%= @sample.id %></span>
+  </div>
+  <%= button_to "Delete Sample", catpm.sample_path(@sample),
+      method: :delete, class: "btn btn-danger",
+      data: { confirm: "Delete this sample? This cannot be undone." } %>
 </div>
 
 <%# ─── Request Info Bar ─── %>

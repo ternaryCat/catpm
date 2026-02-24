@@ -3,10 +3,19 @@
 
 <%= render "catpm/shared/page_nav", active: "events" %>
 
-<div class="breadcrumbs">
-  <a href="<%= catpm.events_path(range: @range) %>">Events</a>
-  <span class="sep">/</span>
-  <span class="badge badge-event"><%= @name %></span>
+<div class="breadcrumbs" style="display:flex; align-items:center; justify-content:space-between">
+  <div>
+    <a href="<%= catpm.events_path(range: @range) %>">Events</a>
+    <span class="sep">/</span>
+    <span class="badge badge-event"><%= @name %></span>
+  </div>
+  <div style="display:flex; gap:6px; align-items:center">
+    <%= button_to @pref&.ignored ? "Unignore" : "Ignore", catpm.event_ignore_path(name: @name),
+        method: :patch, class: "btn" %>
+    <%= button_to "Delete Event", catpm.event_path(name: @name),
+        method: :delete, class: "btn btn-danger",
+        data: { confirm: "Delete this event and all its data? This cannot be undone." } %>
+  </div>
 </div>
 
 <%# ─── Time Range ─── %>

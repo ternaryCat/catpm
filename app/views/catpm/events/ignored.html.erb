@@ -1,0 +1,52 @@
+<% content_for :title, "Ignored Events" %>
+<% content_for :subtitle, "Events hidden from the main dashboard" %>
+
+<%= render "catpm/shared/page_nav", active: "events" %>
+
+<div class="tabs">
+  <a href="<%= catpm.events_path %>" class="tab">Active (<%= @active_event_count %>)</a>
+  <a href="<%= catpm.ignored_events_path %>" class="tab active">Ignored (<%= @ignored_events.size %>)</a>
+</div>
+
+<%# ─── Time Range ─── %>
+<div class="time-range">
+  <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
+    <a href="<%= catpm.ignored_events_path(range: r) %>" class="<%= 'active' if @range == r %>"><%= r == "all" ? "All" : r %></a>
+  <% end %>
+</div>
+
+<% if @ignored_events.any? %>
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Count</th>
+        <th>Last Seen</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @ignored_events.each do |ev| %>
+        <tr class="linked">
+          <td><a href="<%= catpm.event_path(name: ev[:name]) %>" class="row-link"><span class="badge badge-event"><%= ev[:name] %></span></a></td>
+          <td><%= ev[:total_count] %></td>
+          <td><%= ev[:last_seen] ? time_with_tooltip(ev[:last_seen]) : "—" %></td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button data-action="unignore" data-url="<%= catpm.event_ignore_path(name: ev[:name]) %>">Unignore</button>
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.event_path(name: ev[:name]) %>">Delete</button>
+            </div>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  </div>
+<% else %>
+  <div class="empty-state">
+    <div class="empty-title">No ignored events</div>
+    <div class="empty-hint">Events you ignore will appear here.</div>
+  </div>
+<% end %>

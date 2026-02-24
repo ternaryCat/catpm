@@ -12,5 +12,16 @@ module Catpm
         Catpm::ErrorRecord.find_by(fingerprint: @sample.error_fingerprint)
       end
     end
+
+    def destroy
+      sample = Catpm::Sample.find(params[:id])
+      bucket = sample.bucket
+      sample.destroy
+      if bucket
+        redirect_to catpm.endpoint_path(kind: bucket.kind, target: bucket.target, operation: bucket.operation), notice: 'Sample deleted'
+      else
+        redirect_to catpm.status_index_path, notice: 'Sample deleted'
+      end
+    end
   end
 end

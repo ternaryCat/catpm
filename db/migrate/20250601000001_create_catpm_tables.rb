@@ -74,6 +74,26 @@ class CreateCatpmTables < ActiveRecord::Migration[8.0]
     add_index :catpm_event_samples, [:name, :recorded_at], name: 'idx_catpm_event_samples_name_time'
     add_index :catpm_event_samples, :recorded_at, name: 'idx_catpm_event_samples_time'
 
+    create_table :catpm_endpoint_prefs do |t|
+      t.string :kind, null: false
+      t.string :target, null: false
+      t.string :operation, null: false, default: ''
+      t.boolean :pinned, null: false, default: false
+      t.boolean :ignored, null: false, default: false
+    end
+
+    add_index :catpm_endpoint_prefs, [:kind, :target, :operation],
+              unique: true, name: 'idx_catpm_endpoint_prefs_unique'
+
+    create_table :catpm_event_prefs do |t|
+      t.string :name, null: false
+      t.boolean :pinned, null: false, default: false
+      t.boolean :ignored, null: false, default: false
+    end
+
+    add_index :catpm_event_prefs, :name,
+              unique: true, name: 'idx_catpm_event_prefs_unique'
+
     if postgresql?
       execute <<~SQL
         CREATE OR REPLACE FUNCTION catpm_merge_jsonb_sums(a jsonb, b jsonb)
@@ -92,6 +112,8 @@ class CreateCatpmTables < ActiveRecord::Migration[8.0]
       execute 'DROP FUNCTION IF EXISTS catpm_merge_jsonb_sums(jsonb, jsonb);'
     end
 
+    drop_table :catpm_event_prefs, if_exists: true
+    drop_table :catpm_endpoint_prefs, if_exists: true
     drop_table :catpm_event_samples, if_exists: true
     drop_table :catpm_event_buckets, if_exists: true
     drop_table :catpm_errors, if_exists: true

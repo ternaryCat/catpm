@@ -3,6 +3,11 @@
 
 <%= render "catpm/shared/page_nav", active: "performance" %>
 
+<div class="tabs">
+  <a href="<%= catpm.status_index_path(range: @range) %>" class="tab active">Active (<%= @total_endpoint_count %>)</a>
+  <a href="<%= catpm.ignored_endpoints_path %>" class="tab">Ignored (<%= @ignored_endpoints.size %>)</a>
+</div>
+
 <%# ─── Time Range ─── %>
 <div class="time-range">
   <% (["all"] + Catpm::ApplicationHelper::RANGE_KEYS).each do |r| %>
@@ -70,7 +75,6 @@
 
 <%# ─── Endpoints ─── %>
 <h2>Endpoints <% if @total_endpoint_count > @endpoint_count %><span class="text-muted" style="font-weight:400; font-size:13px">(showing <%= @endpoint_count %> of <%= @total_endpoint_count %>)</span><% end %></h2>
-<%= section_description("Endpoints active in the selected time range.") %>
 <% ep_extra = { range: @range }; ep_extra[:kind] = @kind_filter if @kind_filter %>
 <% if @endpoints.any? || @kind_filter.present? %>
   <div class="filters">
@@ -84,6 +88,7 @@
   <table id="endpoints-table">
     <thead>
       <tr>
+        <th></th>
         <th>Kind</th>
         <th><%= sort_header("Target", "target", @sort, @dir, extra_params: ep_extra) %></th>
         <th><%= sort_header("Count", "total_count", @sort, @dir, extra_params: ep_extra) %></th>
@@ -91,18 +96,28 @@
         <th><%= sort_header("Max", "max_duration", @sort, @dir, extra_params: ep_extra) %></th>
         <th><%= sort_header("Fail", "total_failures", @sort, @dir, extra_params: ep_extra) %></th>
         <th><%= sort_header("Last Seen", "last_seen", @sort, @dir, extra_params: ep_extra) %></th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       <% @endpoints.each do |ep| %>
+        <% ep_p = { kind: ep[:kind], target: ep[:target], operation: ep[:operation] } %>
         <tr class="linked">
-          <td><a href="<%= catpm.endpoint_path(kind: ep[:kind], target: ep[:target], operation: ep[:operation]) %>" class="row-link"><%= type_badge(ep[:kind]) %></a></td>
+          <td style="position:relative; z-index:1; width:28px; padding:4px 2px; text-align:center"><button class="star-btn<%= ' pinned' if ep[:pinned] %>" data-pin-url="<%= catpm.endpoint_pin_path(ep_p) %>"><%= ep[:pinned] ? "&#x2605;".html_safe : "&#x2606;".html_safe %></button></td>
+          <td><a href="<%= catpm.endpoint_path(ep_p) %>" class="row-link"><%= type_badge(ep[:kind]) %></a></td>
           <td class="mono"><%= ep[:target] %><%= " #{ep[:operation]}" if ep[:operation].present? %></td>
           <td><%= ep[:total_count] %></td>
           <td class="mono"><%= format_duration(ep[:avg_duration]) %></td>
           <td class="mono"><%= format_duration(ep[:max_duration]) %></td>
           <td><%= ep[:total_failures] %></td>
           <td><%= time_with_tooltip(ep[:last_seen]) %></td>
+          <td style="position:relative; z-index:2; width:28px; padding:4px 2px; text-align:center">
+            <button class="action-menu-btn">&#x22EE;</button>
+            <div class="action-menu">
+              <button data-action="ignore" data-url="<%= catpm.endpoint_ignore_path(ep_p) %>">Ignore</button>
+              <button class="menu-danger" data-action="delete" data-url="<%= catpm.endpoint_path(ep_p) %>">Delete</button>
+            </div>
+          </td>
         </tr>
       <% end %>
     </tbody>
@@ -121,4 +136,5 @@
     <% end %>
   </div>
 <% end %>
+
 

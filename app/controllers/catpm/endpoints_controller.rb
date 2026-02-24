@@ -85,6 +85,7 @@ module Catpm
       @samples = endpoint_samples.where(sample_type: 'random').order(recorded_at: :desc).limit(10)
       @error_samples = endpoint_samples.where(sample_type: 'error').order(recorded_at: :desc).limit(10)
 
+      @pref = Catpm::EndpointPref.find_by(kind: @kind, target: @target, operation: @operation)
       @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
 
@@ -94,7 +95,61 @@ module Catpm
       operation = params[:operation].presence || ''
 
       Catpm::Bucket.where(kind: kind, target: target, operation: operation).destroy_all
-      redirect_to catpm.status_index_path, notice: 'Endpoint deleted'
+      Catpm::EndpointPref.find_by(kind: kind, target: target, operation: operation)&.destroy
+      if request.xhr?
+        render json: { deleted: true }
+      else
+        redirect_to catpm.status_index_path, notice: 'Endpoint deleted'
+      end
+    end
+
+    def toggle_pin
+      pref = Catpm::EndpointPref.lookup(params[:kind], params[:target], params[:operation])
+      pref.pinned = !pref.pinned
+      pref.save!
+      if request.xhr?
+        render json: { pinned: pref.pinned }
+      else
+        redirect_back fallback_location: catpm.endpoint_path(kind: params[:kind], target: params[:target], operation: params[:operation])
+      end
+    end
+
+    def toggle_ignore
+      pref = Catpm::EndpointPref.lookup(params[:kind], params[:target], params[:operation])
+      pref.ignored = !pref.ignored
+      pref.save!
+      if request.xhr?
+        render json: { ignored: pref.ignored }
+      else
+        redirect_back fallback_location: catpm.status_index_path
+      end
+    end
+
+    def ignored
+      @range, period, _bucket_seconds = helpers.parse_range(remembered_range)
+      ignored_prefs = Catpm::EndpointPref.ignored
+
+      scope = @range == 'all' ? Catpm::Bucket.all : Catpm::Bucket.recent(period)
+      grouped = scope.group_by { |b| [b.kind, b.target, b.operation] }
+
+      ignored_keys = ignored_prefs.map { |p| [p.kind, p.target, p.operation] }.to_set
+
+      @ignored_endpoints = ignored_prefs.map do |pref|
+        key = [pref.kind, pref.target, pref.operation]
+        bs = grouped[key]
+        total_count = bs ? bs.sum(&:count) : 0
+        {
+          kind: pref.kind,
+          target: pref.target,
+          operation: pref.operation,
+          total_count: total_count,
+          avg_duration: total_count > 0 ? bs.sum(&:duration_sum) / total_count : 0.0,
+          last_seen: bs&.map(&:bucket_start)&.max
+        }
+      end
+
+      @active_endpoint_count = grouped.keys.count { |k| !ignored_keys.include?(k) }
+      @active_error_count = Catpm::ErrorRecord.unresolved.count
     end
   end
 end
