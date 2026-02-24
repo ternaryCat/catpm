@@ -2,56 +2,65 @@
 
 module Catpm
   class Configuration
+    # Boolean / non-numeric settings — plain attr_accessor
     attr_accessor :enabled,
                   :instrument_http,
                   :instrument_jobs,
                   :instrument_segments,
                   :instrument_net_http,
                   :instrument_stack_sampler,
-                  :max_segments_per_request,
-                  :segment_source_threshold,
-                  :max_sql_length,
-                  :slow_threshold,
+                  :instrument_middleware_stack,
+                  :instrument_call_tree,
                   :slow_threshold_per_kind,
                   :ignored_targets,
-                  :retention_period,
-                  :max_buffer_memory,
-                  :flush_interval,
-                  :flush_jitter,
-                  :max_error_contexts,
                   :bucket_sizes,
                   :error_handler,
                   :http_basic_auth_user,
                   :http_basic_auth_password,
                   :access_policy,
                   :additional_filter_parameters,
-                  :instrument_middleware_stack,
                   :auto_instrument_methods,
                   :service_base_classes,
-                  :random_sample_rate,
-                  :max_random_samples_per_endpoint,
-                  :max_slow_samples_per_endpoint,
-                  :max_error_samples_per_fingerprint,
-                  :cleanup_interval,
-                  :circuit_breaker_failure_threshold,
-                  :circuit_breaker_recovery_timeout,
-                  :sqlite_busy_timeout,
-                  :persistence_batch_size,
-                  :backtrace_lines,
-                  :shutdown_timeout,
                   :events_enabled,
-                  :events_max_samples_per_name,
                   :track_own_requests,
-                  :stack_sample_interval,
-                  :max_stack_samples_per_request,
                   :downsampling_thresholds,
-                  :max_error_detail_length,
-                  :max_fingerprint_app_frames,
-                  :max_fingerprint_gem_frames,
-                  :cleanup_batch_size,
-                  :caller_scan_depth,
-                  :instrument_call_tree,
                   :show_untracked_segments
+
+    # Numeric settings that must be positive numbers (nil not allowed)
+    REQUIRED_NUMERIC = %i[
+      max_sql_length slow_threshold max_buffer_memory flush_interval
+      flush_jitter max_error_contexts random_sample_rate cleanup_interval
+      circuit_breaker_failure_threshold circuit_breaker_recovery_timeout
+      sqlite_busy_timeout persistence_batch_size shutdown_timeout
+      events_max_samples_per_name stack_sample_interval
+      max_stack_samples_per_request max_error_detail_length
+      max_fingerprint_app_frames max_fingerprint_gem_frames
+      cleanup_batch_size caller_scan_depth segment_source_threshold
+    ].freeze
+
+    # Numeric settings where nil means "unlimited"
+    OPTIONAL_NUMERIC = %i[
+      max_segments_per_request retention_period backtrace_lines
+      max_random_samples_per_endpoint max_slow_samples_per_endpoint
+      max_error_samples_per_fingerprint
+    ].freeze
+
+    (REQUIRED_NUMERIC + OPTIONAL_NUMERIC).each do |attr|
+      attr_reader attr
+
+      define_method(:"#{attr}=") do |value|
+        if REQUIRED_NUMERIC.include?(attr)
+          unless value.is_a?(Numeric)
+            raise ArgumentError, "catpm config.#{attr} must be a number, got #{value.inspect}"
+          end
+        else
+          unless value.nil? || value.is_a?(Numeric)
+            raise ArgumentError, "catpm config.#{attr} must be a number or nil, got #{value.inspect}"
+          end
+        end
+        instance_variable_set(:"@#{attr}", value)
+      end
+    end
 
     def initialize
       @enabled = true

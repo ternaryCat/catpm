@@ -81,9 +81,9 @@ module Catpm
         .joins(:bucket)
         .where(catpm_buckets: { kind: @kind, target: @target, operation: @operation })
 
-      @slow_samples = endpoint_samples.where(sample_type: 'slow').order(duration: :desc).limit(10)
-      @samples = endpoint_samples.where(sample_type: 'random').order(recorded_at: :desc).limit(10)
-      @error_samples = endpoint_samples.where(sample_type: 'error').order(recorded_at: :desc).limit(10)
+      @slow_samples = endpoint_samples.where(sample_type: 'slow').order(duration: :desc)
+      @samples = endpoint_samples.where(sample_type: 'random').order(recorded_at: :desc)
+      @error_samples = endpoint_samples.where(sample_type: 'error').order(recorded_at: :desc)
 
       @pref = Catpm::EndpointPref.find_by(kind: @kind, target: @target, operation: @operation)
       @active_error_count = Catpm::ErrorRecord.unresolved.count
