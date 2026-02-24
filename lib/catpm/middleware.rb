@@ -53,6 +53,7 @@ module Catpm
         duration: elapsed_ms(env),
         started_at: Time.current,
         status: 500,
+        sample_type: 'error',
         error_class: exception.class.name,
         error_message: exception.message,
         backtrace: exception.backtrace,
