@@ -28,7 +28,7 @@ module Catpm
 
       @total_count = scope.count
       @page = [params[:page].to_i, 1].max
-      @errors = scope.order(@sort => @dir).offset((@page - 1) * PER_PAGE).limit(PER_PAGE)
+      @errors = scope.order(pinned: :desc, @sort => @dir).offset((@page - 1) * PER_PAGE).limit(PER_PAGE)
     end
 
     def show
@@ -113,6 +113,16 @@ module Catpm
       error = Catpm::ErrorRecord.find(params[:id])
       error.unresolve!
       redirect_to catpm.error_path(error), notice: 'Reopened'
+    end
+
+    def toggle_pin
+      error = Catpm::ErrorRecord.find(params[:id])
+      error.update!(pinned: !error.pinned)
+      if request.xhr?
+        render json: { pinned: error.pinned }
+      else
+        redirect_back fallback_location: catpm.error_path(error)
+      end
     end
 
     def destroy

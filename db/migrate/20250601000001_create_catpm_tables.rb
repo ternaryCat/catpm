@@ -50,6 +50,7 @@ class CreateCatpmTables < ActiveRecord::Migration[8.0]
       t.json :contexts
       t.json :occurrence_buckets
       t.datetime :resolved_at
+      t.boolean :pinned, null: false, default: false
     end
 
     add_index :catpm_errors, :fingerprint, unique: true, name: 'idx_catpm_errors_fingerprint'

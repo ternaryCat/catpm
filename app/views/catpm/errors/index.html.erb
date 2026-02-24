@@ -27,6 +27,7 @@
   <table id="errors-table">
     <thead>
       <tr>
+        <th></th>
         <th>Kind</th>
         <th><%= sort_header("Error Class", "error_class", @sort, @dir, extra_params: extra) %></th>
         <th>Message</th>
@@ -39,6 +40,7 @@
     <tbody>
       <% @errors.each do |e| %>
         <tr class="linked">
+          <td style="position:relative; z-index:1; width:28px; padding:4px 2px; text-align:center"><button class="star-btn<%= ' pinned' if e.pinned %>" data-pin-url="<%= catpm.toggle_pin_error_path(e) %>"><%= e.pinned ? "&#x2605;".html_safe : "&#x2606;".html_safe %></button></td>
           <td><a href="<%= catpm.error_path(e) %>" class="row-link"><%= type_badge(e.kind) %></a></td>
           <td class="mono"><%= e.error_class %></td>
           <td style="color:var(--text-1)"><%= truncate(e.message, length: 60) %></td>

@@ -21,6 +21,7 @@ Catpm::Engine.routes.draw do
     member do
       patch :resolve
       patch :unresolve
+      patch :toggle_pin
     end
   end
 end

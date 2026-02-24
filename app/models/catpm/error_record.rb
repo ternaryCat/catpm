@@ -10,6 +10,7 @@ module Catpm
     scope :by_kind, ->(kind) { where(kind: kind) }
     scope :unresolved, -> { where(resolved_at: nil) }
     scope :resolved, -> { where.not(resolved_at: nil) }
+    scope :pinned, -> { where(pinned: true) }
     scope :recent, ->(period = 24.hours) { where(last_occurred_at: period.ago..) }
 
     def resolved?

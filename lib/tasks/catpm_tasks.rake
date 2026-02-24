@@ -35,6 +35,13 @@ namespace :catpm do
       puts '[catpm] catpm_endpoint_prefs table already exists, skipping'
     end
 
+    unless connection.column_exists?(:catpm_errors, :pinned)
+      connection.add_column :catpm_errors, :pinned, :boolean, null: false, default: false
+      puts '[catpm] Added pinned column to catpm_errors'
+    else
+      puts '[catpm] catpm_errors.pinned already exists, skipping'
+    end
+
     unless connection.table_exists?(:catpm_event_prefs)
       connection.create_table :catpm_event_prefs do |t|
         t.string :name, null: false
