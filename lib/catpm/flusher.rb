@@ -83,8 +83,8 @@ module Catpm
             adapter.persist_buckets(buckets)
 
             bucket_map = build_bucket_map(buckets)
-            samples = rotate_samples(samples)
             adapter.persist_samples(samples, bucket_map)
+            trim_samples(samples)
             adapter.persist_errors(errors)
           end
 
@@ -227,75 +227,43 @@ module Catpm
     end
 
 
-    def rotate_samples(samples)
-      return samples if samples.empty?
+    # Trim excess samples AFTER insert. Simpler and guaranteed correct —
+    # no stale-cache issues when a single flush batch crosses the limit.
+    def trim_samples(samples)
+      return if samples.empty?
 
-      # Pre-fetch counts for all endpoints and types in bulk
       endpoint_keys = samples.map { |s| s[:bucket_key][0..2] }.uniq
-      error_fps = samples.filter_map { |s| s[:error_fingerprint] }.uniq
 
-      # Build counts cache: { [kind, target, op, type] => count }
-      counts_cache = {}
-      if endpoint_keys.any?
-        Catpm::Sample.joins(:bucket)
-          .where(catpm_buckets: { kind: endpoint_keys.map(&:first), target: endpoint_keys.map { |k| k[1] }, operation: endpoint_keys.map { |k| k[2] } })
-          .where(sample_type: %w[random slow])
-          .group('catpm_buckets.kind', 'catpm_buckets.target', 'catpm_buckets.operation', 'catpm_samples.sample_type')
-          .count
-          .each { |(kind, target, op, type), cnt| counts_cache[[kind, target, op, type]] = cnt }
+      endpoint_keys.each do |kind, target, operation|
+        endpoint_scope = Catpm::Sample.joins(:bucket)
+          .where(catpm_buckets: { kind: kind, target: target, operation: operation })
+
+        # Random: keep newest N
+        max_random = Catpm.config.max_random_samples_per_endpoint
+        trim_by_column(endpoint_scope.where(sample_type: 'random'), max_random, :recorded_at) if max_random
+
+        # Slow: keep highest-duration N
+        max_slow = Catpm.config.max_slow_samples_per_endpoint
+        trim_by_column(endpoint_scope.where(sample_type: 'slow'), max_slow, :duration) if max_slow
+
       end
 
-      error_counts = {}
-      if error_fps.any?
-        Catpm::Sample.where(sample_type: 'error', error_fingerprint: error_fps)
-          .group(:error_fingerprint).count
-          .each { |fp, cnt| error_counts[fp] = cnt }
-      end
-
-      samples.each do |sample|
-        kind, target, operation = sample[:bucket_key][0..2]
-
-        case sample[:sample_type]
-        when 'random'
-          max_random = Catpm.config.max_random_samples_per_endpoint
-          if max_random
-            cache_key = [kind, target, operation, 'random']
-            if (counts_cache[cache_key] || 0) >= max_random
-              oldest = Catpm::Sample.joins(:bucket)
-                .where(catpm_buckets: { kind: kind, target: target, operation: operation })
-                .where(sample_type: 'random').order(recorded_at: :asc).first
-              oldest&.destroy
-            end
-          end
-        when 'slow'
-          max_slow = Catpm.config.max_slow_samples_per_endpoint
-          if max_slow
-            cache_key = [kind, target, operation, 'slow']
-            if (counts_cache[cache_key] || 0) >= max_slow
-              weakest = Catpm::Sample.joins(:bucket)
-                .where(catpm_buckets: { kind: kind, target: target, operation: operation })
-                .where(sample_type: 'slow').order(duration: :asc).first
-              if weakest && sample[:duration] > weakest.duration
-                weakest.destroy
-              else
-                sample[:_skip] = true
-              end
-            end
-          end
-        when 'error'
-          max_err = Catpm.config.max_error_samples_per_fingerprint
-          if max_err
-            fp = sample[:error_fingerprint]
-            if fp && (error_counts[fp] || 0) >= max_err
-              oldest = Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp)
-                .order(recorded_at: :asc).first
-              oldest&.destroy
-            end
-          end
+      # Errors: per-fingerprint cap (keep newest within each fingerprint)
+      max_err_fp = Catpm.config.max_error_samples_per_fingerprint
+      if max_err_fp
+        fps = samples.filter_map { |s| s[:error_fingerprint] }.uniq
+        fps.each do |fp|
+          trim_by_column(Catpm::Sample.where(sample_type: 'error', error_fingerprint: fp), max_err_fp, :recorded_at)
         end
       end
+    end
 
-      samples.reject { |s| s.delete(:_skip) }
+    def trim_by_column(scope, max, keep_column)
+      count = scope.count
+      return if count <= max
+
+      excess_ids = scope.order(keep_column => :asc).limit(count - max).pluck(:id)
+      Catpm::Sample.where(id: excess_ids).delete_all if excess_ids.any?
     end
 
     def build_error_context(event)

@@ -121,8 +121,9 @@
 
     <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Sampling</td></tr>
     <tr><td>Random Sample Rate</td><td class="mono">1 in <%= @config.random_sample_rate %></td></tr>
-    <tr><td>Max Random Samples / Endpoint</td><td class="mono"><%= @config.max_random_samples_per_endpoint %></td></tr>
-    <tr><td>Max Slow Samples / Endpoint</td><td class="mono"><%= @config.max_slow_samples_per_endpoint %></td></tr>
+    <tr><td>Max Random Samples / Endpoint</td><td class="mono"><%= @config.max_random_samples_per_endpoint || "unlimited" %></td></tr>
+    <tr><td>Max Slow Samples / Endpoint</td><td class="mono"><%= @config.max_slow_samples_per_endpoint || "unlimited" %></td></tr>
+    <tr><td>Max Error Samples / Fingerprint</td><td class="mono"><%= @config.max_error_samples_per_fingerprint || "unlimited" %></td></tr>
 
     <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Buffer & Flush</td></tr>
     <tr><td>Max Buffer Memory</td><td class="mono"><%= number_to_human_size(@config.max_buffer_memory) %></td></tr>
