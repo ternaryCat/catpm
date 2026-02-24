@@ -101,7 +101,7 @@ module Catpm
               end
               gap = ctrl_dur - child_dur
 
-              if gap > MIN_GAP_MS
+              if gap > MIN_GAP_MS && Catpm.config.show_untracked_segments
                 inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
               end
             end
@@ -256,7 +256,7 @@ module Catpm
               end
               gap = ctrl_dur - child_dur
 
-              if gap > MIN_GAP_MS
+              if gap > MIN_GAP_MS && Catpm.config.show_untracked_segments
                 inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
               end
             end
@@ -379,21 +379,74 @@ module Catpm
 
           remaining = gap - sampler_dur
           if remaining > MIN_GAP_MS
-            segments << {
-              type: 'other',
-              detail: 'Untracked',
-              duration: remaining.round(2),
-              offset: (ctrl_seg[:offset] || 0.0),
-              parent_index: ctrl_idx
-            }
+            inject_timeline_gaps(segments, ctrl_idx, ctrl_seg, remaining)
           end
         else
+          inject_timeline_gaps(segments, ctrl_idx, ctrl_seg, gap)
+        end
+      end
+
+      # Compute actual gap intervals between tracked child segments on the timeline,
+      # then create one Untracked entry per gap. This avoids placing a single large
+      # Untracked block that overlaps with real segments.
+      def inject_timeline_gaps(segments, ctrl_idx, ctrl_seg, total_gap)
+        ctrl_offset = (ctrl_seg[:offset] || 0.0).to_f
+        ctrl_dur = (ctrl_seg[:duration] || 0.0).to_f
+        ctrl_end = ctrl_offset + ctrl_dur
+
+        # Collect [start, end] intervals of direct children that have offsets
+        intervals = []
+        segments.each_with_index do |seg, i|
+          next if i == ctrl_idx
+          next unless seg[:parent_index] == ctrl_idx
+          off = seg[:offset]
+          dur = (seg[:duration] || 0).to_f
+          next unless off
+          intervals << [off.to_f, off.to_f + dur]
+        end
+
+        # If no children have offsets, place the gap at the controller start
+        if intervals.empty?
           segments << {
-            type: 'other',
-            detail: 'Untracked',
-            duration: gap.round(2),
-            offset: (ctrl_seg[:offset] || 0.0),
-            parent_index: ctrl_idx
+            type: 'other', detail: 'Untracked', duration: total_gap.round(2),
+            offset: ctrl_offset, parent_index: ctrl_idx
+          }
+          return
+        end
+
+        # Sort and merge overlapping intervals
+        intervals.sort_by!(&:first)
+        merged = [intervals.first.dup]
+        intervals[1..].each do |s, e|
+          if s <= merged.last[1]
+            merged.last[1] = e if e > merged.last[1]
+          else
+            merged << [s, e]
+          end
+        end
+
+        # Find gaps between controller start, merged intervals, and controller end
+        gaps = []
+        cursor = ctrl_offset
+        merged.each do |s, e|
+          gaps << [cursor, s] if s - cursor > 0
+          cursor = [cursor, e].max
+        end
+        gaps << [cursor, ctrl_end] if ctrl_end - cursor > 0
+
+        # Distribute total_gap proportionally across timeline gaps
+        raw_gap_sum = gaps.sum { |s, e| e - s }
+        return if raw_gap_sum <= 0
+
+        gaps.each do |gs, ge|
+          raw_dur = ge - gs
+          # Scale so all Untracked segments sum to total_gap
+          dur = (raw_dur / raw_gap_sum) * total_gap
+          next if dur < MIN_GAP_MS
+
+          segments << {
+            type: 'other', detail: 'Untracked', duration: dur.round(2),
+            offset: gs.round(2), parent_index: ctrl_idx
           }
         end
       end

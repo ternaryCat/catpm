@@ -17,6 +17,11 @@
       end
     end
 
+    # Sort children of each parent by timeline offset so segments appear chronologically
+    children.each_value do |kids|
+      kids.sort_by! { |i| (segments[i]["offset"] || segments[i][:offset] || 0).to_f }
+    end
+
     depth_map = {}
     ordered = []
     build_order = ->(indices, depth) {

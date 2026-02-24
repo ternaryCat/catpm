@@ -9,6 +9,8 @@ class CollectorTest < ActiveSupport::TestCase
     Catpm.configure { |c| c.enabled = true }
     @buffer = Catpm::Buffer.new(max_bytes: 10.megabytes)
     Catpm.buffer = @buffer
+    # Reset per-endpoint sample counts so test order doesn't affect sampling decisions
+    Catpm::Collector.instance_variable_set(:@random_sample_counts, nil)
   end
 
   teardown do
@@ -313,6 +315,55 @@ class CollectorTest < ActiveSupport::TestCase
 
     assert_equal 'sql', segments[2][:type]
     assert_equal 1, segments[2][:parent_index]
+  end
+
+  test 'untracked segments are placed in timeline gaps not overlapping tracked segments' do
+    Catpm.configure { |c| c.show_untracked_segments = true }
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    # Simulate: controller span (10ms), with SQL at offset 2-4ms and view at offset 6-8ms
+    ctrl_idx = req_segments.push_span(type: :controller, detail: 'UsersController#index', started_at: start)
+    req_segments.add(type: :sql, duration: 2.0, detail: 'SELECT', started_at: start + 0.002)
+    req_segments.add(type: :view, duration: 2.0, detail: 'index.html', started_at: start + 0.006)
+    sleep(0.012)
+    req_segments.pop_span(ctrl_idx)
+
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 50.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    segments = ev.context[:segments] || ev.context['segments']
+    untracked = segments.select { |s| (s[:type] || s['type']) == 'other' }
+
+    # Should have Untracked segments in gaps, not overlapping with SQL/view
+    untracked.each do |ut|
+      ut_start = (ut[:offset] || ut['offset']).to_f
+      ut_end = ut_start + (ut[:duration] || ut['duration']).to_f
+
+      segments.each do |seg|
+        next if (seg[:type] || seg['type']) == 'other'
+        next if (seg[:type] || seg['type']) == 'controller'
+        next if (seg[:type] || seg['type']) == 'request'
+        seg_off = seg[:offset] || seg['offset']
+        next unless seg_off
+
+        seg_start = seg_off.to_f
+        seg_end = seg_start + (seg[:duration] || seg['duration']).to_f
+
+        # Untracked must not overlap with tracked segments
+        overlaps = ut_start < seg_end && ut_end > seg_start
+        assert_not overlaps,
+          "Untracked [#{ut_start.round(2)}..#{ut_end.round(2)}] overlaps with " \
+          "#{seg[:type]} [#{seg_start.round(2)}..#{seg_end.round(2)}]"
+      end
+    end
   end
 
   test 'process_active_job creates job event' do

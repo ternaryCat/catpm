@@ -20,6 +20,7 @@ Catpm.configure do |config|
   # config.instrument_middleware_stack = false
   # config.instrument_stack_sampler = false
   # config.instrument_call_tree = false
+  # config.show_untracked_segments = false
   # config.track_own_requests = false
 
   # === Auto-instrumentation ===
