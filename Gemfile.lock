@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    catpm (0.6.1)
+    catpm (0.7.0)
       rails (>= 7.1)
 
 GEM
