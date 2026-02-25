@@ -34,22 +34,40 @@ class BufferTest < ActiveSupport::TestCase
     assert @buffer.current_bytes > bytes_before
   end
 
-  test 'drops events when buffer is full' do
+  test 'accepts events above max_bytes and signals flush' do
     event = make_event(target: 'A' * 100)
-    # Buffer just big enough for one event
     small_buffer = Catpm::Buffer.new(max_bytes: event.estimated_bytes + 1)
 
-    first_result = small_buffer.push(event)
-    assert_equal :accepted, first_result
+    flush_signaled = false
+    small_buffer.on_flush_needed { flush_signaled = true }
 
-    second_result = small_buffer.push(event)
-    assert_equal :dropped, second_result
-    assert_equal 1, small_buffer.dropped_count
+    assert_equal :accepted, small_buffer.push(event)
+    assert_not flush_signaled
+
+    # Second event exceeds max_bytes but is accepted (triggers flush signal)
+    assert_equal :accepted, small_buffer.push(event)
+    assert flush_signaled
+    assert_equal 2, small_buffer.size
+  end
+
+  test 'drops events at hard safety cap (3x max_bytes)' do
+    event = make_event(target: 'A' * 100)
+    bytes = event.estimated_bytes
+    # Buffer where 3 events fit but 4th exceeds 3x cap
+    tiny_buffer = Catpm::Buffer.new(max_bytes: bytes + 1)
+
+    # Fill up to ~3x capacity
+    3.times { tiny_buffer.push(event) }
+
+    # 4th push should be dropped (exceeds 3x hard cap)
+    result = tiny_buffer.push(event)
+    assert_equal :dropped, result
+    assert_equal 1, tiny_buffer.dropped_count
     assert_equal 1, Catpm.stats[:dropped_events]
   end
 
-  test 'backpressure returns :dropped' do
-    tiny_buffer = Catpm::Buffer.new(max_bytes: 1) # 1 byte = always full
+  test 'backpressure returns :dropped at hard cap' do
+    tiny_buffer = Catpm::Buffer.new(max_bytes: 1) # 1 byte, hard cap = 3 bytes
     event = make_event
 
     result = tiny_buffer.push(event)

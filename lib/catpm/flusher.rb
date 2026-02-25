@@ -16,6 +16,16 @@ module Catpm
       @thread = nil
       @pid = nil
       @mutex = Mutex.new
+      @sleep_mutex = Mutex.new
+      @flush_signal = ConditionVariable.new
+
+      # When buffer reaches capacity, wake flusher immediately
+      @buffer.on_flush_needed { signal_flush }
+    end
+
+    # Wake the flusher thread for an immediate flush cycle.
+    def signal_flush
+      @sleep_mutex.synchronize { @flush_signal.signal }
     end
 
     def start
@@ -32,7 +42,9 @@ module Catpm
         @pid = Process.pid
         @thread = Thread.new do
           while @running
-            sleep(effective_interval)
+            @sleep_mutex.synchronize do
+              @flush_signal.wait(@sleep_mutex, effective_interval)
+            end
             flush_cycle if @running
           end
         rescue => e
@@ -61,6 +73,7 @@ module Catpm
         @thread = nil
       end
 
+      signal_flush # Wake flusher thread for clean exit
       thread&.join(timeout)
       flush_cycle # Final flush
     end

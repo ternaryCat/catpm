@@ -65,7 +65,12 @@ module Catpm
     def pop_span(index)
       return unless index
 
-      @span_stack.delete(index)
+      # Pop from stack — typically it's the last element (LIFO)
+      if @span_stack.last == index
+        @span_stack.pop
+      else
+        @span_stack.delete(index)
+      end
       segment = @segments[index]
       return unless segment
 

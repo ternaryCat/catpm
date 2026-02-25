@@ -2,11 +2,32 @@
 
 module Catpm
   class CallTracer
+    MAX_CALL_DEPTH = 64
+
+    # Global thread-safe path classification cache — avoids repeated Fingerprint.app_frame? calls
+    @global_path_cache = {}
+    @global_path_mutex = Mutex.new
+
+    class << self
+      def app_frame_cached?(path)
+        cached = @global_path_cache[path]
+        return cached unless cached.nil?
+
+        result = Fingerprint.app_frame?(path)
+        @global_path_mutex.synchronize do
+          # Cap cache to prevent unbounded growth across process lifetime
+          @global_path_cache.clear if @global_path_cache.size > 2000
+          @global_path_cache[path] = result
+        end
+        result
+      end
+    end
+
     def initialize(request_segments:)
       @request_segments = request_segments
       @call_stack = []
-      @path_cache = {}
       @started = false
+      @depth = 0
 
       @tracepoint = TracePoint.new(:call, :return) do |tp|
         case tp.event
@@ -36,10 +57,18 @@ module Catpm
     private
 
     def handle_call(tp)
+      @depth += 1
+
       path = tp.path
-      app = app_frame?(path)
+      app = self.class.app_frame_cached?(path)
 
       unless app
+        @call_stack.push(:skip)
+        return
+      end
+
+      # Prevent excessive nesting from blowing up memory
+      if @depth > MAX_CALL_DEPTH
         @call_stack.push(:skip)
         return
       end
@@ -51,6 +80,7 @@ module Catpm
     end
 
     def handle_return
+      @depth -= 1 if @depth > 0
       entry = @call_stack.pop
       return if entry == :skip || entry.nil?
 
@@ -64,13 +94,6 @@ module Catpm
         @request_segments.pop_span(entry)
       end
       @call_stack.clear
-    end
-
-    def app_frame?(path)
-      cached = @path_cache[path]
-      return cached unless cached.nil?
-
-      @path_cache[path] = Fingerprint.app_frame?(path)
     end
 
     def format_detail(defined_class, method_id)
