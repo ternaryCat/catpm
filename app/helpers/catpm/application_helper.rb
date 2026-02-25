@@ -47,6 +47,119 @@ module Catpm
 
     RANGE_KEYS = RANGES.keys.freeze
 
+    # Setting metadata for the system page — maps config attributes to display info.
+    # Ordered by group; Ruby hashes preserve insertion order.
+    CONFIG_METADATA = {
+      # ── Core ──
+      enabled:                          { group: 'Core', label: 'Enabled', desc: 'Master switch for all catpm instrumentation', fmt: :bool },
+      track_own_requests:               { group: 'Core', label: 'Track Own Requests', desc: 'Whether catpm dashboard requests are tracked', fmt: :bool },
+
+      # ── Instrumentation ──
+      instrument_http:                  { group: 'Instrumentation', label: 'HTTP', desc: 'Capture HTTP request/response metrics via Rack middleware', fmt: :bool },
+      instrument_jobs:                  { group: 'Instrumentation', label: 'Jobs', desc: 'Track ActiveJob and Sidekiq background job performance', fmt: :bool },
+      instrument_segments:              { group: 'Instrumentation', label: 'Segments', desc: 'Capture SQL, view, cache, and HTTP sub-segments within requests', fmt: :bool },
+      instrument_net_http:              { group: 'Instrumentation', label: 'Net::HTTP', desc: 'Patch Net::HTTP to capture outbound HTTP calls as segments', fmt: :bool },
+      instrument_middleware_stack:       { group: 'Instrumentation', label: 'Middleware Stack', desc: 'Instrument the full Rack middleware stack for per-middleware timing', fmt: :bool },
+      instrument_stack_sampler:         { group: 'Instrumentation', label: 'Stack Sampler', desc: 'Periodically sample the call stack during requests for flame-graph data', fmt: :bool },
+      instrument_call_tree:             { group: 'Instrumentation', label: 'Call Tree', desc: 'Capture full method-level call trees within requests', fmt: :bool },
+      show_untracked_segments:          { group: 'Instrumentation', label: 'Show Untracked', desc: 'Display time not attributed to any segment in the waterfall view', fmt: :bool },
+
+      # ── Segments ──
+      slow_threshold:                   { group: 'Segments', label: 'Slow Threshold', desc: 'Requests slower than this are flagged as slow', fmt: :ms },
+      slow_threshold_per_kind:          { group: 'Segments', label: 'Slow Threshold (per kind)', desc: 'Override slow threshold for specific request kinds (http, job, custom)', fmt: :hash_ms },
+      max_segments_per_request:         { group: 'Segments', label: 'Max Segments / Request', desc: 'Cap on segments captured per request', fmt: :nullable_int },
+      segment_source_threshold:         { group: 'Segments', label: 'Source Capture Threshold', desc: 'Minimum segment duration (ms) before caller_locations is captured; 0 = always', fmt: :ms_zero },
+      max_sql_length:                   { group: 'Segments', label: 'Max SQL Length', desc: 'Truncate SQL queries beyond this many characters', fmt: :nullable_chars },
+      ignored_targets:                  { group: 'Segments', label: 'Ignored Targets', desc: 'Endpoint patterns excluded from tracking (strings or regexps)', fmt: :list },
+
+      # ── Stack Sampling ──
+      stack_sample_interval:            { group: 'Stack Sampling', label: 'Sample Interval', desc: 'How often the call stack is sampled during a request', fmt: :seconds },
+      max_stack_samples_per_request:    { group: 'Stack Sampling', label: 'Max Samples / Request', desc: 'Cap on stack samples per request', fmt: :nullable_int },
+
+      # ── Sampling ──
+      random_sample_rate:               { group: 'Sampling', label: 'Random Sample Rate', desc: '1-in-N requests are sampled randomly for detailed traces', fmt: :one_in_n },
+      max_random_samples_per_endpoint:  { group: 'Sampling', label: 'Max Random / Endpoint', desc: 'Random samples retained per endpoint', fmt: :nullable_int },
+      max_slow_samples_per_endpoint:    { group: 'Sampling', label: 'Max Slow / Endpoint', desc: 'Slow samples retained per endpoint', fmt: :nullable_int },
+      max_error_samples_per_fingerprint: { group: 'Sampling', label: 'Max Error / Fingerprint', desc: 'Error samples retained per error fingerprint', fmt: :nullable_int },
+
+      # ── Errors ──
+      max_error_contexts:               { group: 'Errors', label: 'Max Error Contexts', desc: 'Context snapshots stored per error occurrence', fmt: :nullable_int },
+      backtrace_lines:                  { group: 'Errors', label: 'Backtrace Lines', desc: 'Number of backtrace lines captured per error', fmt: :nullable_int },
+      max_error_detail_length:          { group: 'Errors', label: 'Max Error Detail Length', desc: 'Truncate error detail segments beyond this length', fmt: :nullable_chars },
+      max_fingerprint_app_frames:       { group: 'Errors', label: 'Fingerprint App Frames', desc: 'App stack frames used for error fingerprinting', fmt: :nullable_int },
+      max_fingerprint_gem_frames:       { group: 'Errors', label: 'Fingerprint Gem Frames', desc: 'Gem stack frames used when no app frames available', fmt: :nullable_int },
+
+      # ── Events ──
+      events_enabled:                   { group: 'Events', label: 'Events Enabled', desc: 'Enable custom event tracking via Catpm.event', fmt: :bool },
+      events_max_samples_per_name:      { group: 'Events', label: 'Max Samples / Name', desc: 'Event samples retained per event name', fmt: :nullable_int },
+
+      # ── Buffer & Flush ──
+      max_buffer_memory:                { group: 'Buffer & Flush', label: 'Max Buffer Memory', desc: 'Maximum memory for the in-memory event queue before events are dropped', fmt: :bytes },
+      flush_interval:                   { group: 'Buffer & Flush', label: 'Flush Interval', desc: 'How often the background thread drains the buffer to the database', fmt: :seconds },
+      flush_jitter:                     { group: 'Buffer & Flush', label: 'Flush Jitter', desc: 'Random jitter added to flush interval to avoid thundering herd', fmt: :pm_seconds },
+      persistence_batch_size:           { group: 'Buffer & Flush', label: 'Batch Size', desc: 'Number of events written per database transaction', fmt: :int },
+
+      # ── Retention & Downsampling ──
+      retention_period:                 { group: 'Retention', label: 'Retention Period', desc: 'How long data is kept; nil = forever (data is downsampled, not deleted)', fmt: :duration },
+      cleanup_interval:                 { group: 'Retention', label: 'Cleanup Interval', desc: 'How often the cleanup job runs to remove expired data', fmt: :duration },
+      cleanup_batch_size:               { group: 'Retention', label: 'Cleanup Batch Size', desc: 'Rows deleted per cleanup batch', fmt: :nullable_int },
+      bucket_sizes:                     { group: 'Retention', label: 'Bucket Sizes', desc: 'Time bucket granularities for data aggregation', fmt: :bucket_sizes },
+      downsampling_thresholds:          { group: 'Retention', label: 'Downsampling Thresholds', desc: 'Age before each tier is merged into the next coarser tier', fmt: :downsampling },
+
+      # ── Resilience ──
+      circuit_breaker_failure_threshold: { group: 'Resilience', label: 'Circuit Breaker Threshold', desc: 'Consecutive DB write failures before the circuit opens', fmt: :int_failures },
+      circuit_breaker_recovery_timeout: { group: 'Resilience', label: 'Circuit Breaker Recovery', desc: 'Seconds before retrying after circuit opens', fmt: :seconds },
+      sqlite_busy_timeout:              { group: 'Resilience', label: 'SQLite Busy Timeout', desc: 'How long SQLite waits for a lock before raising BUSY', fmt: :ms, condition: :sqlite? },
+
+      # ── Security ──
+      http_basic_auth_user:             { group: 'Security', label: 'HTTP Basic Auth User', desc: 'Username for HTTP Basic authentication on the dashboard', fmt: :secret },
+      http_basic_auth_password:         { group: 'Security', label: 'HTTP Basic Auth Password', desc: 'Password for HTTP Basic authentication on the dashboard', fmt: :secret },
+
+      # ── PII Filtering ──
+      additional_filter_parameters:     { group: 'PII Filtering', label: 'Additional Filter Parameters', desc: 'Extra parameter names to redact from captured data (on top of Rails defaults)', fmt: :list },
+
+      # ── Advanced ──
+      shutdown_timeout:                 { group: 'Advanced', label: 'Shutdown Timeout', desc: 'Seconds to wait for buffer flush on application shutdown', fmt: :seconds },
+      caller_scan_depth:                { group: 'Advanced', label: 'Caller Scan Depth', desc: 'Max stack frames scanned to find app code for source attribution', fmt: :int },
+      auto_instrument_methods:          { group: 'Advanced', label: 'Auto-Instrument Methods', desc: 'Method signatures to automatically instrument (e.g. Worker#process)', fmt: :list },
+      service_base_classes:             { group: 'Advanced', label: 'Service Base Classes', desc: 'Base classes for auto-detection of service objects; nil = auto-detect', fmt: :nullable_list },
+    }.freeze
+
+    def format_config_value(config, attr, meta)
+      value = config.send(attr)
+      case meta[:fmt]
+      when :bool           then value ? 'true' : 'false'
+      when :ms             then "#{value}ms"
+      when :ms_zero        then value == 0 || value == 0.0 ? '0 (always)' : "#{value}ms"
+      when :seconds        then "#{value}s"
+      when :pm_seconds     then "\u00B1#{value}s"
+      when :bytes          then number_to_human_size(value)
+      when :int            then value.to_s
+      when :int_failures   then "#{value} failures"
+      when :one_in_n       then "1 in #{value}"
+      when :nullable_int   then value.nil? ? 'unlimited' : value.to_s
+      when :nullable_chars then value.nil? ? 'unlimited' : "#{value} chars"
+      when :list           then value.respond_to?(:any?) && value.any? ? value.map(&:to_s).join(', ') : 'none'
+      when :nullable_list  then value.nil? ? 'auto-detect' : value.map(&:to_s).join(', ')
+      when :secret         then value.present? ? 'set' : 'not set'
+      when :hash_ms        then value.respond_to?(:any?) && value.any? ? value.map { |k, v| "#{k}: #{v}ms" }.join(', ') : 'none'
+      when :duration       then format_duration_value(value)
+      when :bucket_sizes   then value.map { |k, v| "#{k}: #{humanize_seconds(v)}" }.join(', ')
+      when :downsampling   then value.map { |k, v| "#{k}: #{humanize_seconds(v)}" }.join(', ')
+      else value.to_s
+      end
+    end
+
+    def config_condition_met?(meta)
+      return true unless meta[:condition]
+      case meta[:condition]
+      when :sqlite?
+        ActiveRecord::Base.connection.adapter_name.downcase.include?('sqlite')
+      else
+        true
+      end
+    end
+
     def segment_colors
       SEGMENT_COLORS
     end
@@ -270,6 +383,35 @@ module Catpm
         %(<span title="Active in the last hour" style="color:var(--red)">↑</span>).html_safe
       else
         %(<span title="Quiet" style="color:var(--text-2)">—</span>).html_safe
+      end
+    end
+
+    private
+
+    def format_duration_value(value)
+      return 'forever' if value.nil?
+      secs = value.to_i
+      if secs >= 86_400
+        "#{secs / 86_400} days"
+      elsif secs >= 3600
+        "#{secs / 3600} hours"
+      else
+        "#{secs / 60} min"
+      end
+    end
+
+    def humanize_seconds(secs)
+      secs = secs.to_i
+      if secs >= 604_800
+        "#{secs / 604_800}w"
+      elsif secs >= 86_400
+        "#{secs / 86_400}d"
+      elsif secs >= 3600
+        "#{secs / 3600}h"
+      elsif secs >= 60
+        "#{secs / 60}min"
+      else
+        "#{secs}s"
       end
     end
   end

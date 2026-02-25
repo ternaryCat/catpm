@@ -3,500 +3,96 @@
 
 <%= render "catpm/shared/page_nav", active: "system" %>
 
-<%# ─── Pipeline ─── %>
-<h2>Data Pipeline</h2>
-<%= section_description("How requests flow from your app to the catpm database.") %>
+<%# ─── Runtime Diagnostics ─── %>
+<h2>Runtime</h2>
 
-<div class="pipeline" data-buffer="<%= @buffer_size %>" data-flushes="<%= @stats[:flushes] %>">
-  <div class="pipeline-node">
-    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="14" r="9"/><path d="M14 9v5l3.5 3.5"/></svg></div>
-    <div class="node-label">Capture</div>
-    <div class="node-value" style="font-size:14px">Middleware</div>
-    <div class="node-detail">A Rack middleware wraps each request, measures total duration, and collects SQL, view, cache, and HTTP segments along the way.</div>
+<div class="diag-grid">
+  <div class="diag-card">
+    <div class="diag-label">Buffer</div>
+    <div class="diag-value"><%= @buffer_size %> <span class="diag-unit">events</span></div>
+    <div class="diag-detail"><%= number_to_human_size(@buffer_bytes) %> / <%= number_to_human_size(@config.max_buffer_memory) %></div>
   </div>
-  <div class="pipeline-arrow">
-    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="diag-card">
+    <div class="diag-label">Flushes</div>
+    <div class="diag-value"><%= @stats[:flushes] %></div>
+    <div class="diag-detail">every ~<%= @config.flush_interval %>s</div>
   </div>
-  <div class="pipeline-node">
-    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="16" height="20" rx="2"/><line x1="10" y1="10" x2="18" y2="10"/><line x1="10" y1="14" x2="18" y2="14"/><line x1="10" y1="18" x2="15" y2="18"/></svg></div>
-    <div class="node-label">Buffer</div>
-    <div class="node-value"><%= @buffer_size %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">events</span></div>
-    <div class="node-detail">Finished requests are added to a thread-safe in-memory queue. Currently using <%= number_to_human_size(@buffer_bytes) %> of <%= number_to_human_size(@config.max_buffer_memory) %> max.<br><% if @stats[:dropped_events] > 0 %><span style="color:var(--red)"><%= @stats[:dropped_events] %> events dropped (buffer was full)</span><% else %><span class="pulse" style="background:var(--green)"></span> no drops<% end %></div>
+  <div class="diag-card">
+    <div class="diag-label">Drops</div>
+    <div class="diag-value<%= @stats[:dropped_events] > 0 ? " diag-value--warn" : "" %>"><%= @stats[:dropped_events] %></div>
+    <div class="diag-detail"><% if @stats[:dropped_events] > 0 %>buffer was full<% else %><span class="pulse" style="background:var(--green)"></span> none<% end %></div>
   </div>
-  <div class="pipeline-arrow">
-    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="diag-card">
+    <div class="diag-label">Circuit</div>
+    <div class="diag-value<%= @stats[:circuit_opens] > 0 ? " diag-value--warn" : "" %>"><% if @stats[:circuit_opens] > 0 %><%= @stats[:circuit_opens] %> opens<% else %>healthy<% end %></div>
+    <div class="diag-detail"><% if @stats[:circuit_opens] > 0 %>DB write failures<% else %><span class="pulse" style="background:var(--green)"></span> no failures<% end %></div>
   </div>
-  <div class="pipeline-node">
-    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,22 10,16 15,19 24,8"/><polyline points="18,8 24,8 24,14"/></svg></div>
-    <div class="node-label">Flush</div>
-    <div class="node-value"><%= @stats[:flushes] %> <span style="font-size:12px;font-weight:400;color:var(--text-2)">flushes</span></div>
-    <div class="node-detail">Every ~<%= @config.flush_interval %>s a background thread drains the buffer, aggregates events into time buckets, and writes them to the database in bulk.<br><% if @stats[:circuit_opens] > 0 %><span style="color:var(--yellow)"><%= @stats[:circuit_opens] %> circuit opens (DB write failures)</span><% else %><span class="pulse" style="background:var(--green)"></span> circuit healthy<% end %></div>
-  </div>
-  <div class="pipeline-arrow">
-    <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </div>
-  <div class="pipeline-node">
-    <div class="node-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="8" rx="8" ry="4"/><path d="M6 8v12c0 2.2 3.58 4 8 4s8-1.8 8-4V8"/><path d="M6 14c0 2.2 3.58 4 8 4s8-1.8 8-4"/></svg></div>
-    <div class="node-label">Database</div>
-    <div class="node-value" style="font-size:14px">Storage</div>
-    <div class="node-detail">Aggregated stats are stored as time buckets, with detailed samples and error fingerprints.<br><%= @oldest_bucket ? "Data since #{@oldest_bucket.strftime('%b %-d')}, retained #{@config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever"}." : "No data yet." %></div>
+  <div class="diag-card">
+    <div class="diag-label">Data</div>
+    <div class="diag-value"><%= @oldest_bucket ? @oldest_bucket.strftime('%b %-d') : "—" %></div>
+    <div class="diag-detail"><%= @oldest_bucket ? "retained #{@config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever"}" : "no data yet" %></div>
   </div>
 </div>
 
 <%# ─── Storage ─── %>
-<h2>Database Storage</h2>
-<%= section_description("Disk space used by catpm tables in your database.") %>
-
 <% total_bytes = @table_sizes.sum { |t| t[:total_bytes].to_i } %>
 <% has_bytes = @table_sizes.any? { |t| t[:total_bytes] } %>
+<% total_rows = @table_sizes.sum { |t| t[:row_estimate].to_i } %>
+<% max_rows = @table_sizes.map { |t| t[:row_estimate].to_i }.max %>
+<% max_rows = 1 if max_rows == 0 %>
 
-<% if has_bytes %>
-<div class="storage-total">
-  Total: <strong><%= number_to_human_size(total_bytes) %></strong>
-</div>
-<% end %>
+<h2>Storage</h2>
 
-<div class="config-table">
-<div class="table-scroll">
-<table>
-  <thead>
-    <tr>
-      <th>Table</th>
-      <th style="text-align:right">Rows</th>
-      <% if has_bytes %>
-      <th style="text-align:right">Size</th>
-      <% end %>
-    </tr>
-  </thead>
-  <tbody>
-    <% @table_sizes.each do |t| %>
-    <tr>
-      <td class="mono"><%= t[:name] %></td>
-      <td class="mono" style="text-align:right"><%= number_with_delimiter(t[:row_estimate].to_i) %></td>
-      <% if has_bytes %>
-      <td class="mono" style="text-align:right"><%= number_to_human_size(t[:total_bytes].to_i) %></td>
-      <% end %>
-    </tr>
-    <% end %>
+<div class="storage-card">
+  <div class="storage-header">
     <% if has_bytes %>
-    <tr style="font-weight:600;border-top:2px solid var(--border)">
-      <td>Total</td>
-      <td class="mono" style="text-align:right"><%= number_with_delimiter(@table_sizes.sum { |t| t[:row_estimate].to_i }) %></td>
-      <td class="mono" style="text-align:right"><%= number_to_human_size(total_bytes) %></td>
-    </tr>
+      <span class="storage-total"><%= number_to_human_size(total_bytes) %></span>
+      <span class="storage-meta"><%= number_with_delimiter(total_rows) %> rows across <%= @table_sizes.size %> tables</span>
+    <% else %>
+      <span class="storage-total"><%= number_with_delimiter(total_rows) %> rows</span>
+      <span class="storage-meta"><%= @table_sizes.size %> tables</span>
     <% end %>
-  </tbody>
-</table>
-</div>
+  </div>
+  <div class="storage-bars">
+    <% @table_sizes.sort_by { |t| -t[:row_estimate].to_i }.each do |t| %>
+      <% row_count = t[:row_estimate].to_i %>
+      <% pct = (row_count.to_f / max_rows * 100).round(1) %>
+      <div class="storage-row">
+        <span class="storage-name mono"><%= t[:name].sub('catpm_', '') %></span>
+        <div class="storage-bar-track">
+          <div class="storage-bar-fill" style="width:<%= [pct, 2].max %>%"></div>
+        </div>
+        <span class="storage-row-stat mono"><%= number_with_delimiter(row_count) %></span>
+        <% if has_bytes %>
+          <span class="storage-row-size mono"><%= number_to_human_size(t[:total_bytes].to_i) %></span>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
 </div>
 
-<%# ─── Configuration ─── %>
+<%# ─── Configuration (grouped cards) ─── %>
 <h2>Configuration</h2>
-<%= section_description("Current catpm settings. Configure via initializer.") %>
-<div class="config-table">
-<div class="table-scroll">
-<table>
-  <thead>
-    <tr>
-      <th>Setting</th>
-      <th>Value</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Instrumentation</td></tr>
-    <tr><td>Enabled</td><td class="mono"><%= @config.enabled %></td></tr>
-    <tr><td>HTTP Instrumentation</td><td class="mono"><%= @config.instrument_http %></td></tr>
-    <tr><td>Job Instrumentation</td><td class="mono"><%= @config.instrument_jobs %></td></tr>
-    <tr><td>Segment Instrumentation</td><td class="mono"><%= @config.instrument_segments %></td></tr>
-    <tr><td>Net::HTTP Instrumentation</td><td class="mono"><%= @config.instrument_net_http %></td></tr>
-    <tr><td>Middleware Stack Instrumentation</td><td class="mono"><%= @config.instrument_middleware_stack %></td></tr>
-    <tr><td>Max Segments / Request</td><td class="mono"><%= @config.max_segments_per_request %></td></tr>
-    <tr><td>Segment Source Threshold</td><td class="mono"><%= @config.segment_source_threshold == 0.0 ? "0 (always capture)" : "#{@config.segment_source_threshold}ms" %></td></tr>
-    <tr><td>Max SQL Length</td><td class="mono"><%= @config.max_sql_length %> chars</td></tr>
-    <tr><td>Slow Threshold</td><td class="mono"><%= @config.slow_threshold %>ms</td></tr>
-    <% if @config.slow_threshold_per_kind.any? %>
-    <tr><td>Slow Threshold (per kind)</td><td class="mono"><%= @config.slow_threshold_per_kind.map { |k, v| "#{k}: #{v}ms" }.join(", ") %></td></tr>
-    <% end %>
-    <tr><td>Ignored Targets</td><td class="mono"><%= @config.ignored_targets.any? ? @config.ignored_targets.map(&:to_s).join(", ") : "none" %></td></tr>
+<%= section_description("Current runtime settings. Set via initializer — each row shows the config parameter name.") %>
 
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Sampling</td></tr>
-    <tr><td>Random Sample Rate</td><td class="mono">1 in <%= @config.random_sample_rate %></td></tr>
-    <tr><td>Max Random Samples / Endpoint</td><td class="mono"><%= @config.max_random_samples_per_endpoint || "unlimited" %></td></tr>
-    <tr><td>Max Slow Samples / Endpoint</td><td class="mono"><%= @config.max_slow_samples_per_endpoint || "unlimited" %></td></tr>
-    <tr><td>Max Error Samples / Fingerprint</td><td class="mono"><%= @config.max_error_samples_per_fingerprint || "unlimited" %></td></tr>
-
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Buffer & Flush</td></tr>
-    <tr><td>Max Buffer Memory</td><td class="mono"><%= number_to_human_size(@config.max_buffer_memory) %></td></tr>
-    <tr><td>Flush Interval</td><td class="mono"><%= @config.flush_interval %>s (&plusmn;<%= @config.flush_jitter %>s jitter)</td></tr>
-    <tr><td>Persistence Batch Size</td><td class="mono"><%= @config.persistence_batch_size %></td></tr>
-    <tr><td>Shutdown Timeout</td><td class="mono"><%= @config.shutdown_timeout %>s</td></tr>
-
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Retention & Downsampling</td></tr>
-    <tr><td>Retention Period</td><td class="mono"><%= @config.retention_period ? "#{(@config.retention_period / 1.day).to_i} days" : "forever" %></td></tr>
-    <tr><td>Cleanup Interval</td><td class="mono"><%= (@config.cleanup_interval / 1.minute).to_i %> min</td></tr>
-    <tr><td>Bucket Sizes</td><td class="mono"><%= @config.bucket_sizes.map { |k, v| "#{k}: #{v < 1.hour ? "#{(v / 1.minute).to_i}min" : v < 1.day ? "#{(v / 1.hour).to_i}h" : "#{(v / 1.day).to_i}d"}" }.join(", ") %></td></tr>
-
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Error Tracking</td></tr>
-    <tr><td>Max Error Contexts</td><td class="mono"><%= @config.max_error_contexts %></td></tr>
-    <tr><td>Backtrace Lines</td><td class="mono"><%= @config.backtrace_lines %></td></tr>
-
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">Resilience</td></tr>
-    <tr><td>Circuit Breaker Threshold</td><td class="mono"><%= @config.circuit_breaker_failure_threshold %> failures</td></tr>
-    <tr><td>Circuit Breaker Recovery</td><td class="mono"><%= @config.circuit_breaker_recovery_timeout %>s</td></tr>
-    <% if ActiveRecord::Base.connection.adapter_name.downcase.include?("sqlite") %>
-    <tr><td>SQLite Busy Timeout</td><td class="mono"><%= @config.sqlite_busy_timeout %>ms</td></tr>
-    <% end %>
-
-    <tr><td colspan="2" style="font-weight:600;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;padding-top:12px">PII Filtering</td></tr>
-    <tr><td>Additional Filter Parameters</td><td class="mono"><%= @config.additional_filter_parameters.any? ? @config.additional_filter_parameters.map(&:to_s).join(", ") : "none (Rails defaults only)" %></td></tr>
-  </tbody>
-</table>
-</div>
-</div>
-
-<script>
-(function() {
-  var el = document.querySelector('.pipeline');
-  if (!el) return;
-
-  var pnodes = el.querySelectorAll('.pipeline-node');
-  if (pnodes.length < 4) return;
-  var r0 = pnodes[0].getBoundingClientRect();
-  var r1 = pnodes[1].getBoundingClientRect();
-  if (r1.top > r0.bottom - 10) return;
-
-  // Find arrow elements between nodes for path routing
-  var arrows = el.querySelectorAll('.pipeline-arrow');
-
-  var canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2';
-  el.style.position = 'relative';
-  el.style.overflow = 'hidden';
-  el.appendChild(canvas);
-
-  var ctx = canvas.getContext('2d');
-  var dpr = window.devicePixelRatio || 1;
-  var W, H;
-  var FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
-
-  function resize() {
-    W = el.offsetWidth; H = el.offsetHeight;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  resize();
-  if (window.ResizeObserver) new ResizeObserver(resize).observe(el);
-
-  function zones() {
-    var pr = el.getBoundingClientRect();
-    var nodeZones = Array.prototype.map.call(pnodes, function(n) {
-      var r = n.getBoundingClientRect();
-      return {
-        l: r.left - pr.left, r: r.right - pr.left,
-        t: r.top - pr.top, b: r.bottom - pr.top,
-        cx: (r.left + r.right) / 2 - pr.left,
-        cy: (r.top + r.bottom) / 2 - pr.top,
-        w: r.width, h: r.height
-      };
-    });
-    // Arrow centers
-    var arrowZones = Array.prototype.map.call(arrows, function(a) {
-      var r = a.getBoundingClientRect();
-      return {
-        l: r.left - pr.left, r: r.right - pr.left,
-        cx: (r.left + r.right) / 2 - pr.left,
-        cy: (r.top + r.bottom) / 2 - pr.top
-      };
-    });
-    return { nodes: nodeZones, arrows: arrowZones };
-  }
-
-  var C = { ok: '#1a7f37', error: '#cf222e', slow: '#9a6700', sample: '#8250df' };
-  var POOL = ['ok','ok','ok','ok','ok','ok','ok','slow','slow','error','sample'];
-  var SZ = 5;
-  var MAX_BUF = 36;
-  var FLUSH_MS = 5000;
-
-  var METHODS = ['GET','GET','GET','GET','POST','POST','PUT','PATCH','DELETE'];
-  var RPATHS = ['/users','/home','/orders','/api','/settings',
-    '/reports','/data','/search','/login','/pay','/items','/stats'];
-
-  function randLabel(type) {
-    var m = METHODS[Math.floor(Math.random() * METHODS.length)];
-    var p = RPATHS[Math.floor(Math.random() * RPATHS.length)];
-    if (type === 'slow') return m + ' ' + p + ' ' + (200 + Math.floor(Math.random() * 600)) + 'ms';
-    if (type === 'error') {
-      var codes = [500, 502, 503, 422];
-      return m + ' ' + p + ' ' + codes[Math.floor(Math.random() * codes.length)];
-    }
-    return m + ' ' + p;
-  }
-
-  function rrect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  }
-
-  // Linear interpolation
-  function lerp(a, b, t) { return a + (b - a) * t; }
-
-  var particles = [];
-  var batchAcc = 0;
-  var flushAcc = 0;
-  var prev = 0;
-
-  function randType() { return POOL[Math.floor(Math.random() * POOL.length)]; }
-
-  // Buffer slots: vertical columns, right-aligned, bottom-to-top, like a queue
-  function bufRowsPerCol(bz) { return Math.max(1, Math.floor((bz.h - 20) / (SZ + 2))); }
-  function bufSlot(idx, bz) {
-    var perCol = bufRowsPerCol(bz);
-    var col = Math.floor(idx / perCol);
-    var row = idx % perCol;
-    return {
-      x: bz.r - 10 - col * (SZ + 2) - SZ / 2,
-      y: bz.b - 10 - row * (SZ + 2) - SZ / 2
-    };
-  }
-
-  var initBuf = Math.min(parseInt(el.dataset.buffer) || 0, MAX_BUF);
-
-  function seedBuffer(z) {
-    var buf = z.nodes[1];
-    for (var i = 0; i < initBuf; i++) {
-      var s = bufSlot(i, buf);
-      particles.push({
-        type: randType(), x: s.x, y: s.y,
-        state: 1, opacity: 0.8, slotX: s.x, slotY: s.y
-      });
-    }
-    initBuf = 0;
-  }
-
-  function tick(t) {
-    if (!prev) { prev = t; requestAnimationFrame(tick); return; }
-    var dt = Math.min(t - prev, 50);
-    prev = t;
-
-    var z = zones();
-    if (z.nodes.length < 4) { requestAnimationFrame(tick); return; }
-    var cap = z.nodes[0], buf = z.nodes[1], flu = z.nodes[2], db = z.nodes[3];
-    var arrow0 = z.arrows[0] || { cx: (cap.r + buf.l) / 2, cy: cap.cy };
-    var laneY = cap.t + cap.h * 0.42;
-
-    if (initBuf > 0) seedBuffer(z);
-
-    var bc = 0;
-    for (var i = 0; i < particles.length; i++) if (particles[i].state === 1) bc++;
-
-    // Check if previous batch is still lingering at Capture
-    var captureOccupied = false;
-    for (var i = 0; i < particles.length; i++) {
-      if (particles[i].state === 0 && particles[i].phase <= 1) {
-        captureOccupied = true; break;
-      }
-    }
-
-    // --- Batch spawn: 1-5 requests arrive together, every 3-5s ---
-    batchAcc += dt;
-    if (batchAcc > 2500 + Math.random() * 1500 && !captureOccupied) {
-      batchAcc = 0;
-      var count = Math.min(1 + Math.floor(Math.random() * 5), MAX_BUF - bc);
-      if (count > 0) {
-        var spacing = 26;
-        var yBase = laneY - (count - 1) * spacing / 2;
-        for (var j = 0; j < count; j++) {
-          var type = randType();
-          var label = randLabel(type);
-          ctx.font = '500 11px ' + FONT;
-          var lw = ctx.measureText(label).width;
-          var s = bufSlot(bc + j, buf);
-          particles.push({
-            type: type, label: label, labelW: lw,
-            x: cap.l - 20,
-            y: yBase + j * spacing,
-            phase: 0, // 0=enter, 1=linger, 2=smooth glide to slot
-            lingerTime: 300 + Math.random() * 400,
-            lingerAcc: 0,
-            state: 0, opacity: 0, age: 0, progress: 0,
-            slotX: s.x, slotY: s.y
-          });
-        }
-      }
-    }
-
-    // --- Flush: routes Buffer → arrow → Flush → arrow → Database ---
-    flushAcc += dt;
-    if (flushAcc > FLUSH_MS + Math.random() * 2000) {
-      flushAcc = 0;
-      var delay = 0;
-      for (var i = 0; i < particles.length; i++) {
-        var p = particles[i];
-        if (p.state === 1) {
-          p.state = 2;
-          p.phase = 0;
-          p.fx = flu.cx + (Math.random() - 0.5) * 24;
-          p.fy = flu.t + 18 + Math.random() * (flu.h * 0.35);
-          p.tx = db.cx + (Math.random() - 0.5) * 40;
-          p.ty = db.t + 18 + Math.random() * (db.h * 0.4);
-          p.delay = delay;
-          p.waited = 0;
-          p.pauseAcc = 0;
-          delay += 20 + Math.random() * 15;
-        }
-      }
-    }
-
-    // --- Update ---
-    for (var i = particles.length - 1; i >= 0; i--) {
-      var p = particles[i];
-
-      if (p.state === 0) {
-        p.age = (p.age || 0) + dt;
-
-        if (p.phase === 0) {
-          // Entering: slide in from left to Capture center
-          p.opacity = Math.min(0.9, p.opacity + dt * 0.005);
-          var dx = cap.cx - p.x;
-          p.x += dx * 0.008 * dt;
-          if (Math.abs(dx) < 3) {
-            p.phase = 1;
-            p.x = cap.cx;
-            p.lingerAcc = 0;
-          }
-        }
-        else if (p.phase === 1) {
-          // Lingering at Capture (shorter time)
-          p.opacity = 0.9;
-          p.lingerAcc += dt;
-          if (p.lingerAcc > p.lingerTime) {
-            p.phase = 2;
-            p.progress = 0;
-            // Save start position for path interpolation
-            p.startX = p.x;
-            p.startY = p.y;
-          }
-        }
-        else if (p.phase === 2) {
-          // Smooth glide directly from Capture → slot position
-          p.progress = Math.min(1, p.progress + dt * 0.0012);
-          var ease = p.progress * p.progress * (3 - 2 * p.progress); // smoothstep
-          p.x = lerp(p.startX, p.slotX, ease);
-          p.y = lerp(p.startY, p.slotY, ease);
-          if (p.progress >= 1) {
-            p.state = 1;
-            p.x = p.slotX;
-            p.y = p.slotY;
-            p.opacity = 0.8;
-          }
-        }
-      }
-      else if (p.state === 1) {
-        // In buffer — snap to grid, no jiggle
-        p.x = p.slotX;
-        p.y = p.slotY;
-      }
-      else if (p.state === 2) {
-        // Flushing: Buffer → arrow → Flush (pause) → arrow → Database
-        p.waited = (p.waited || 0) + dt;
-        if (p.waited < p.delay) continue;
-
-        if (p.phase === 0) {
-          var dx = p.fx - p.x, dy = p.fy - p.y;
-          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
-            p.phase = 1; p.pauseAcc = 0;
-          } else {
-            p.x += dx * 0.0035 * dt;
-            p.y += dy * 0.0035 * dt;
-          }
-        }
-        else if (p.phase === 1) {
-          p.pauseAcc += dt;
-          if (p.pauseAcc > 350 + Math.random() * 200) p.phase = 2;
-        }
-        else if (p.phase === 2) {
-          var dx = p.tx - p.x, dy = p.ty - p.y;
-          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
-            p.state = 3; p.ds = t;
-          } else {
-            p.x += dx * 0.0035 * dt;
-            p.y += dy * 0.0035 * dt;
-          }
-        }
-      }
-      else if (p.state === 3) {
-        var e = t - p.ds;
-        p.opacity = 0.8 * Math.max(0, 1 - e / 800);
-        if (p.opacity <= 0.01) { particles.splice(i, 1); continue; }
-      }
-    }
-
-    // --- Draw ---
-    ctx.clearRect(0, 0, W, H);
-    for (var i = 0; i < particles.length; i++) {
-      var p = particles[i];
-      if (p.opacity <= 0.01) continue;
-
-      // Scale: full-size at Capture, shrinks to 0 as it glides toward the buffer slot
-      var scale = 0;
-      if (p.state === 0) {
-        if (p.phase <= 1) {
-          scale = 1;
-        } else {
-          // Shrink based on progress along the glide (0→1)
-          scale = Math.max(0, 1 - p.progress * 1.5); // fully small by ~67% of the path
-        }
-      }
-
-      ctx.globalAlpha = p.opacity;
-
-      if (scale > 0.12 && p.label) {
-        // Large block with text
-        var fs = Math.round(11 * scale);
-        var bw = (p.labelW + 14) * scale;
-        var bh = 22 * scale;
-        var rad = 3 * scale;
-
-        ctx.fillStyle = C[p.type];
-        ctx.globalAlpha = p.opacity * 0.92;
-        rrect(p.x - bw / 2, p.y - bh / 2, bw, bh, rad);
-        ctx.fill();
-
-        if (fs >= 7) {
-          ctx.globalAlpha = p.opacity;
-          ctx.fillStyle = '#fff';
-          ctx.font = '500 ' + fs + 'px ' + FONT;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(p.label, p.x, p.y + 0.5);
-        }
-      } else {
-        // Small cube
-        ctx.fillStyle = C[p.type];
-        if (p.state === 3) {
-          var e = t - p.ds;
-          var s = SZ * (1 + e * 0.002);
-          ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
-        } else {
-          ctx.fillRect(p.x - SZ / 2, p.y - SZ / 2, SZ, SZ);
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
-
-    requestAnimationFrame(tick);
-  }
-
-  requestAnimationFrame(tick);
-})();
-</script>
+<% Catpm::ApplicationHelper::CONFIG_METADATA.group_by { |_, m| m[:group] }.each do |group_name, settings| %>
+  <% visible = settings.select { |_, m| config_condition_met?(m) } %>
+  <% next if visible.empty? %>
+  <div class="config-group">
+    <h3 class="config-group-title"><%= group_name %></h3>
+    <div class="config-group-body">
+      <% visible.each do |attr, meta| %>
+        <div class="config-item">
+          <div class="config-item-header">
+            <span class="config-item-label"><%= meta[:label] %></span>
+            <span class="config-item-value mono"><%= format_config_value(@config, attr, meta) %></span>
+          </div>
+          <div class="config-item-meta">
+            <code class="config-param">config.<%= attr %></code>
+            <span class="config-desc"><%= meta[:desc] %></span>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+<% end %>

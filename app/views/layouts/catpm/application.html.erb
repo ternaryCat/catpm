@@ -290,6 +290,41 @@
 
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 12px; text-align: center; }
 
+    /* ─── Diagnostics Grid ─── */
+    .diag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 24px; }
+    .diag-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .diag-label { font-size: 11px; color: var(--text-1); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }
+    .diag-value { font-size: 22px; font-weight: 600; color: var(--text-0); margin-top: 2px; line-height: 1.2; }
+    .diag-value--warn { color: var(--yellow); }
+    .diag-unit { font-size: 12px; font-weight: 400; color: var(--text-2); }
+    .diag-detail { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+    /* ─── Storage Card ─── */
+    .storage-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 24px; }
+    .storage-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+    .storage-total { font-size: 18px; font-weight: 600; color: var(--text-0); }
+    .storage-meta { font-size: 13px; color: var(--text-2); }
+    .storage-bars { display: flex; flex-direction: column; gap: 6px; }
+    .storage-row { display: grid; grid-template-columns: 120px 1fr auto auto; gap: 10px; align-items: center; font-size: 12px; }
+    .storage-name { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .storage-bar-track { height: 6px; background: var(--bg-2); border-radius: 3px; overflow: hidden; }
+    .storage-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; opacity: 0.6; transition: width 0.3s; }
+    .storage-row-stat { color: var(--text-1); text-align: right; min-width: 50px; }
+    .storage-row-size { color: var(--text-2); text-align: right; min-width: 60px; }
+
+    /* ─── Config Groups (System page) ─── */
+    .config-group { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+    .config-group-title { font-size: 11px; font-weight: 600; color: var(--text-1); text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 16px; margin: 0; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+    .config-group-body { padding: 0; }
+    .config-item { padding: 10px 16px; border-bottom: 1px solid var(--bg-2); }
+    .config-item:last-child { border-bottom: none; }
+    .config-item-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .config-item-label { font-weight: 500; font-size: 13px; color: var(--text-0); }
+    .config-item-value { font-size: 13px; color: var(--text-0); text-align: right; flex-shrink: 0; }
+    .config-item-meta { margin-top: 3px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+    .config-param { font-family: var(--font-mono); font-size: 11px; color: var(--accent); background: var(--bg-1); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+    .config-desc { font-size: 12px; color: var(--text-2); line-height: 1.4; }
+
     /* ─── Table Scroll ─── */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
@@ -306,6 +341,11 @@
       .pipeline-node { min-width: auto; }
       .pipeline-arrow { justify-content: center; padding: 4px 0; }
       .pipeline-arrow svg { transform: rotate(90deg); }
+      .config-item-header { flex-direction: column; gap: 2px; }
+      .config-item-value { text-align: left; }
+      .diag-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+      .storage-row { grid-template-columns: 90px 1fr auto auto; gap: 6px; }
+      .storage-header { flex-direction: column; gap: 2px; }
     }
   </style>
 </head>
