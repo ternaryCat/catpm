@@ -95,12 +95,25 @@ module Catpm
 
     def sampler_segments
       return [] if @call_tree # call tree mode produces segments via call_tree_segments
-      @sampler&.to_segments(tracked_ranges: @tracked_ranges) || []
+      result = @sampler&.to_segments(tracked_ranges: @tracked_ranges) || []
+      @sampler&.clear_samples! # free raw backtrace data immediately
+      result
     end
 
     def call_tree_segments
       return [] unless @sampler && @call_tree
-      @sampler.to_call_tree(tracked_ranges: @tracked_ranges)
+      result = @sampler.to_call_tree(tracked_ranges: @tracked_ranges)
+      @sampler.clear_samples! # free raw backtrace data immediately
+      result
+    end
+
+    # Release all internal state after Collector has consumed data.
+    # Helps GC reclaim memory sooner on small/constrained hosts.
+    def release!
+      @segments = []
+      @summary = {}
+      @tracked_ranges = []
+      @sampler = nil
     end
 
     def overflowed?

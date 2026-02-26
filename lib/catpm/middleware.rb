@@ -32,6 +32,7 @@ module Catpm
     ensure
       if Catpm.config.instrument_segments
         req_segments&.stop_sampler
+        req_segments&.release!
         Thread.current[:catpm_request_segments] = nil
       end
     end

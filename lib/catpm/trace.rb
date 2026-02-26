@@ -112,6 +112,7 @@ module Catpm
       )
 
       if owns_segments
+        req_segments&.release!
         Thread.current[:catpm_request_segments] = nil
       end
     end

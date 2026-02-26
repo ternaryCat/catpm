@@ -144,6 +144,8 @@ module Catpm
                 parent_index: error_parent
               }
             end
+
+            req_segments.release! # free internal state for GC
           end
 
           context = scrub(context)
@@ -314,6 +316,8 @@ module Catpm
                 parent_index: error_parent
               }
             end
+
+            req_segments.release! # free internal state for GC
           end
 
           context = scrub(context)

@@ -496,6 +496,40 @@ class CollectorTest < ActiveSupport::TestCase
     assert_equal 'request', segments[0][:type]
   end
 
+  test 'process_action_controller releases req_segments after processing' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+    req_segments.add(type: :sql, duration: 5.0, detail: 'SELECT 1', started_at: start)
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 42.5
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    # After processing, internal state should be released
+    assert_equal [], req_segments.segments, 'Segments should be released after Collector processes them'
+    assert_nil req_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+  end
+
+  test 'process_tracked releases req_segments after processing' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'INSERT INTO logs', started_at: start)
+
+    Catpm::Collector.process_tracked(
+      kind: :telegram, target: 'WebhookController#message',
+      operation: 'message', duration: 20.0,
+      context: {}, metadata: {}, error: nil,
+      req_segments: req_segments
+    )
+
+    assert_equal [], req_segments.segments, 'Segments should be released after Collector processes them'
+    assert_nil req_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+  end
+
   test 'process_active_job creates job event' do
     event = mock_job_event(
       job_class: 'SendEmailJob', job_id: 'abc-123',

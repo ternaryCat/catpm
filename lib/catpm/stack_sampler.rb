@@ -4,8 +4,8 @@ module Catpm
   class StackSampler
     MS_PER_SECOND = 1000.0
     MIN_SEGMENT_DURATION_MS = 1.0
-    CALL_TREE_SAMPLE_INTERVAL = 0.001 # 1ms — higher resolution for call tree reconstruction
     SAMPLING_THREAD_PRIORITY = -1
+    HARD_SAMPLE_CAP = 500 # absolute max even when config allows unlimited — prevents heap bloat
 
     # Single global thread that samples all active requests.
     # Avoids creating a thread per request.
@@ -37,14 +37,9 @@ module Catpm
       def start_thread
         @stop = false
         @thread = Thread.new do
+          interval = Catpm.config.stack_sample_interval
           loop do
             break if @stop
-
-            interval = if Catpm.config.instrument_call_tree
-              [CALL_TREE_SAMPLE_INTERVAL, Catpm.config.stack_sample_interval].min
-            else
-              Catpm.config.stack_sample_interval
-            end
             sleep(interval)
             sample_all
           end
@@ -80,14 +75,21 @@ module Catpm
 
     def stop
       self.class.loop.unregister(self)
+      @target = nil # release thread reference for GC
+    end
+
+    # Free raw backtrace data after segments have been extracted.
+    def clear_samples!
+      @samples = []
     end
 
     # Called by SamplingLoop from the global thread
     def capture(now)
       max = Catpm.config.max_stack_samples_per_request
-      return if max && @samples.size >= max
+      cap = max ? [max, HARD_SAMPLE_CAP].min : HARD_SAMPLE_CAP
+      return if @samples.size >= cap
 
-      locs = @target.backtrace_locations
+      locs = @target&.backtrace_locations
       @samples << [now, locs] if locs
     end
 
@@ -249,9 +251,7 @@ module Catpm
     end
 
     def call_tree_node_duration(node)
-      interval = Catpm.config.instrument_call_tree ?
-        [CALL_TREE_SAMPLE_INTERVAL, Catpm.config.stack_sample_interval].min :
-        Catpm.config.stack_sample_interval
+      interval = Catpm.config.stack_sample_interval
       [
         (node[:last_time] - node[:first_time]) * MS_PER_SECOND,
         node[:count] * interval * MS_PER_SECOND

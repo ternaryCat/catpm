@@ -125,4 +125,49 @@ class MiddlewareTest < ActiveSupport::TestCase
     assert_equal 'UsersController#create', ev.target
     assert_equal 'POST', ev.operation
   end
+
+  test 'releases request segments internal state after request' do
+    Catpm.configure do |c|
+      c.instrument_segments = true
+      c.instrument_stack_sampler = true
+      c.stack_sample_interval = 0.005
+    end
+
+    captured_segments = nil
+    app = ->(env) do
+      captured_segments = env['catpm.segments']
+      sleep(0.01) # give sampler time to collect
+      [200, {}, ['OK']]
+    end
+    middleware = Catpm::Middleware.new(app)
+
+    middleware.call({})
+
+    # After request completes, internal state should be released
+    assert_not_nil captured_segments
+    assert_equal [], captured_segments.segments, 'Segments should be cleared after request'
+    assert_nil captured_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+  end
+
+  test 'releases request segments even on exception' do
+    Catpm.configure do |c|
+      c.instrument_segments = true
+      c.instrument_stack_sampler = true
+      c.stack_sample_interval = 0.005
+    end
+
+    captured_segments = nil
+    app = ->(env) do
+      captured_segments = env['catpm.segments']
+      raise RuntimeError, 'boom'
+    end
+    middleware = Catpm::Middleware.new(app)
+
+    env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
+    assert_raises(RuntimeError) { middleware.call(env) }
+
+    assert_not_nil captured_segments
+    assert_equal [], captured_segments.segments, 'Segments should be cleared even on exception'
+    assert_nil captured_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+  end
 end

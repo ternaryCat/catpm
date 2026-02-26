@@ -4,6 +4,7 @@ Catpm::Engine.routes.draw do
   root 'status#index'
   resources :status, only: [:index]
   resources :system, only: [:index]
+  get 'pipeline', to: 'system#pipeline', as: :pipeline
   get 'endpoint', to: 'endpoints#show', as: :endpoint
   delete 'endpoint', to: 'endpoints#destroy'
   patch 'endpoint/pin', to: 'endpoints#toggle_pin', as: :endpoint_pin

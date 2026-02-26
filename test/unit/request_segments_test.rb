@@ -292,4 +292,91 @@ class RequestSegmentsTest < ActiveSupport::TestCase
 
     rs.pop_span(root)
   end
+
+  # ─── Memory management tests ───
+
+  test 'release! clears all internal state' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    rs = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+    rs.add(type: :sql, duration: 5.0, detail: 'SELECT 1', started_at: start)
+    rs.add(type: :view, duration: 3.0, detail: 'index.html', started_at: start)
+
+    assert_equal 2, rs.segments.size
+    assert rs.summary[:sql_count] > 0
+
+    rs.release!
+
+    assert_equal [], rs.segments
+    assert_equal({}, rs.summary)
+  end
+
+  test 'release! nils out sampler reference' do
+    Catpm.configure do |c|
+      c.instrument_stack_sampler = true
+      c.stack_sample_interval = 0.005
+    end
+
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    rs = Catpm::RequestSegments.new(
+      max_segments: 50, request_start: start, stack_sample: true
+    )
+    assert_not_nil rs.instance_variable_get(:@sampler)
+
+    rs.stop_sampler
+    rs.release!
+
+    assert_nil rs.instance_variable_get(:@sampler)
+  end
+
+  test 'sampler_segments clears raw samples after extraction' do
+    Catpm.configure do |c|
+      c.instrument_stack_sampler = true
+      c.stack_sample_interval = 0.005
+    end
+
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    rs = Catpm::RequestSegments.new(
+      max_segments: 50, request_start: start, stack_sample: true
+    )
+    sleep(0.02)
+    rs.stop_sampler
+
+    sampler = rs.instance_variable_get(:@sampler)
+    assert sampler.instance_variable_get(:@samples).size > 0, 'Should have samples before extraction'
+
+    rs.sampler_segments
+    assert_equal [], sampler.instance_variable_get(:@samples), 'Samples should be cleared after extraction'
+  end
+
+  test 'call_tree_segments clears raw samples after extraction' do
+    Catpm.configure do |c|
+      c.instrument_stack_sampler = true
+      c.instrument_call_tree = true
+      c.stack_sample_interval = 0.005
+    end
+
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    rs = Catpm::RequestSegments.new(
+      max_segments: 50, request_start: start,
+      stack_sample: true, call_tree: true
+    )
+    sleep(0.02)
+    rs.stop_sampler
+
+    sampler = rs.instance_variable_get(:@sampler)
+    assert sampler.instance_variable_get(:@samples).size > 0, 'Should have samples before extraction'
+
+    rs.call_tree_segments
+    assert_equal [], sampler.instance_variable_get(:@samples), 'Samples should be cleared after extraction'
+  end
+
+  test 'release! is safe to call multiple times' do
+    rs = Catpm::RequestSegments.new(max_segments: 50)
+    rs.add(type: :sql, duration: 5.0, detail: 'SELECT 1')
+
+    assert_nothing_raised do
+      rs.release!
+      rs.release!
+    end
+  end
 end
