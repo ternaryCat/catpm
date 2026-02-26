@@ -4,6 +4,7 @@ module Catpm
   class StackSampler
     MS_PER_SECOND = 1000.0
     MIN_SEGMENT_DURATION_MS = 1.0
+    CALL_TREE_SAMPLE_INTERVAL = 0.001 # 1ms — higher resolution for call tree reconstruction
     SAMPLING_THREAD_PRIORITY = -1
 
     # Single global thread that samples all active requests.
@@ -31,7 +32,12 @@ module Catpm
       def start_thread
         @thread = Thread.new do
           loop do
-            sleep(Catpm.config.stack_sample_interval)
+            interval = if Catpm.config.instrument_call_tree
+              [CALL_TREE_SAMPLE_INTERVAL, Catpm.config.stack_sample_interval].min
+            else
+              Catpm.config.stack_sample_interval
+            end
+            sleep(interval)
             sample_all
           end
         end
@@ -51,10 +57,11 @@ module Catpm
       attr_reader :loop
     end
 
-    def initialize(target_thread:, request_start:)
+    def initialize(target_thread:, request_start:, call_tree: false)
       @target = target_thread
       @request_start = request_start
       @samples = []
+      @call_tree = call_tree
     end
 
     def start
@@ -159,7 +166,87 @@ module Catpm
       end
     end
 
+    # Build a call tree from samples — replacement for TracePoint-based CallTracer.
+    # Returns flat array of segments with :_tree_parent (relative index or nil for top-level).
+    def to_call_tree(tracked_ranges: [])
+      return [] if @samples.size < 2
+
+      # Build a tree of app-frame call chains across all samples
+      tree = {} # key → {frame:, children: {}, count:, first_time:, last_time:}
+
+      @samples.each do |time, locs|
+        chain = extract_app_chain(locs)
+        next if chain.empty?
+
+        current_level = tree
+        chain.each do |frame|
+          key = frame_key(frame)
+          unless current_level.key?(key)
+            current_level[key] = {
+              frame: frame, children: {}, count: 0,
+              first_time: time, last_time: time
+            }
+          end
+          node = current_level[key]
+          node[:count] += 1
+          node[:last_time] = time
+          current_level = node[:children]
+        end
+      end
+
+      # Flatten tree into segments with relative parent references
+      segments = []
+      flatten_call_tree(tree, segments, nil)
+      segments
+    end
+
     private
+
+    # Extract all app frames from a backtrace, ordered caller-first (outer → inner).
+    def extract_app_chain(locations)
+      frames = []
+      locations.each do |loc|
+        path = loc.path.to_s
+        next if path.start_with?('<internal:')
+        next if path.include?('/catpm/')
+        next if path.include?('/ruby/') && !path.include?('/gems/')
+
+        frames << loc if Fingerprint.app_frame?(path)
+      end
+      frames.reverse
+    end
+
+    def flatten_call_tree(children_hash, segments, parent_idx)
+      children_hash.each_value do |node|
+        duration = call_tree_node_duration(node)
+        next if duration < MIN_SEGMENT_DURATION_MS
+
+        frame = node[:frame]
+        seg = {
+          type: 'code',
+          detail: build_app_detail(frame),
+          duration: duration.round(2),
+          offset: ((node[:first_time] - @request_start) * MS_PER_SECOND).round(2),
+          source: "#{frame.path}:#{frame.lineno}",
+          _tree_parent: parent_idx
+        }
+
+        idx = segments.size
+        segments << seg
+
+        flatten_call_tree(node[:children], segments, idx)
+      end
+    end
+
+    def call_tree_node_duration(node)
+      interval = Catpm.config.instrument_call_tree ?
+        [CALL_TREE_SAMPLE_INTERVAL, Catpm.config.stack_sample_interval].min :
+        Catpm.config.stack_sample_interval
+      [
+        (node[:last_time] - node[:first_time]) * MS_PER_SECOND,
+        node[:count] * interval * MS_PER_SECOND
+      ].max
+    end
 
     # Walk the stack: find the leaf (deepest interesting frame)
     # and the app_frame (nearest app code above the leaf)

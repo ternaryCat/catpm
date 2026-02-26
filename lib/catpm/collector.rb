@@ -90,6 +90,19 @@ module Catpm
               end
             end
 
+            # Inject call tree segments from sampler (replaces TracePoint-based CallTracer)
+            if Catpm.config.instrument_call_tree && req_segments
+              tree_segs = req_segments.call_tree_segments
+              if tree_segs.any?
+                base_idx = segments.size
+                tree_segs.each do |seg|
+                  tree_parent = seg.delete(:_tree_parent)
+                  seg[:parent_index] = tree_parent ? (tree_parent + base_idx) : (ctrl_idx || 0)
+                  segments << seg
+                end
+              end
+            end
+
             # Fill untracked controller time with sampler data or synthetic segment
             ctrl_idx = segments.index { |s| s[:type] == 'controller' }
             if ctrl_idx
@@ -246,6 +259,19 @@ module Catpm
             end
             segments.unshift(root_segment)
 
+            # Inject call tree segments from sampler
+            if Catpm.config.instrument_call_tree && req_segments
+              tree_segs = req_segments.call_tree_segments
+              if tree_segs.any?
+                base_idx = segments.size
+                tree_segs.each do |seg|
+                  tree_parent = seg.delete(:_tree_parent)
+                  seg[:parent_index] = tree_parent ? (tree_parent + base_idx) : (ctrl_idx || 0)
+                  segments << seg
+                end
+              end
+            end
+
             # Fill untracked controller time with sampler data or synthetic segment
             ctrl_idx = segments.index { |s| s[:type] == 'controller' }
             if ctrl_idx
@@ -339,14 +365,18 @@ module Catpm
       # ActiveSupport controller notification finishes.
       # Mutates segments in place: removes the wrapper and re-indexes parent references.
       def collapse_code_wrappers(segments)
+        # Pre-build set of parent indices that have a controller child — O(n)
+        parents_with_controller = {}
+        segments.each do |seg|
+          parents_with_controller[seg[:parent_index]] = true if seg[:type] == 'controller' && seg[:parent_index]
+        end
+
         # Identify code spans to collapse: near-zero duration wrapping a controller child
         collapse = {}
         segments.each_with_index do |seg, i|
           next unless seg[:type] == 'code'
           next unless (seg[:duration] || 0).to_f < 1.0
-
-          has_controller_child = segments.any? { |s| s[:parent_index] == i && s[:type] == 'controller' }
-          next unless has_controller_child
+          next unless parents_with_controller[i]
 
           collapse[i] = seg[:parent_index]
         end

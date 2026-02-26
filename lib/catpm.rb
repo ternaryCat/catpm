@@ -39,6 +39,7 @@ module Catpm
       @config = Configuration.new
       @buffer = nil
       @flusher = nil
+      Fingerprint.reset_caches!
     end
 
     def enabled?

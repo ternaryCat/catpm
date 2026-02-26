@@ -4,6 +4,9 @@ require 'digest'
 
 module Catpm
   module Fingerprint
+    @path_cache = {}
+    @path_cache_mutex = Mutex.new
+
     # Generates a stable fingerprint for error grouping.
     # Includes kind so the same exception in HTTP vs job = different groups.
     def self.generate(kind:, error_class:, backtrace:)
@@ -30,23 +33,60 @@ module Catpm
         .join("\n")
     end
 
-    # Checks if a backtrace line belongs to the host application (not a gem or stdlib)
+    # Cached wrapper — all callers benefit from the shared path cache.
     def self.app_frame?(line)
-      return false if line.include?('/gems/')
-      return false if line.include?('/ruby/')
-      return false if line.include?('<internal:')
-      return false if line.include?('/catpm/')
+      cached = @path_cache[line]
+      return cached unless cached.nil?
 
-      if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
-        return line.start_with?(Rails.root.to_s) if line.start_with?('/')
+      result = _app_frame?(line)
+      @path_cache_mutex.synchronize do
+        @path_cache.clear if @path_cache.size > 4000
+        @path_cache[line] = result
       end
+      result
+    end
 
-      line.start_with?('app/') || line.include?('/app/')
+    # Cached Rails.root.to_s — computed once, never changes after boot.
+    def self.cached_rails_root
+      return @cached_rails_root if defined?(@cached_rails_root)
+
+      @cached_rails_root = if defined?(Rails) && Rails.respond_to?(:root) && Rails.root
+        Rails.root.to_s.freeze
+      end
+    end
+
+    # Cached "#{Rails.root}/" for path stripping.
+    def self.cached_rails_root_slash
+      return @cached_rails_root_slash if defined?(@cached_rails_root_slash)
+
+      root = cached_rails_root
+      @cached_rails_root_slash = root ? "#{root}/".freeze : nil
+    end
+
+    def self.reset_caches!
+      @path_cache_mutex.synchronize { @path_cache.clear }
+      remove_instance_variable(:@cached_rails_root) if defined?(@cached_rails_root)
+      remove_instance_variable(:@cached_rails_root_slash) if defined?(@cached_rails_root_slash)
     end
 
     # Strips line numbers: "app/models/user.rb:42:in `validate'" → "app/models/user.rb:in `validate'"
     def self.strip_line_number(line)
       line.sub(/:\d+:in /, ':in ')
     end
+
+    # The actual classification logic (uncached).
+    def self._app_frame?(line)
+      return false if line.include?('/gems/')
+      return false if line.include?('/ruby/')
+      return false if line.include?('<internal:')
+      return false if line.include?('/catpm/')
+
+      if (root = cached_rails_root)
+        return line.start_with?(root) if line.start_with?('/')
+      end
+
+      line.start_with?('app/') || line.include?('/app/')
+    end
+    private_class_method :_app_frame?
   end
 end

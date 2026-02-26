@@ -4,25 +4,6 @@ module Catpm
   class CallTracer
     MAX_CALL_DEPTH = 64
 
-    # Global thread-safe path classification cache — avoids repeated Fingerprint.app_frame? calls
-    @global_path_cache = {}
-    @global_path_mutex = Mutex.new
-
-    class << self
-      def app_frame_cached?(path)
-        cached = @global_path_cache[path]
-        return cached unless cached.nil?
-
-        result = Fingerprint.app_frame?(path)
-        @global_path_mutex.synchronize do
-          # Cap cache to prevent unbounded growth across process lifetime
-          @global_path_cache.clear if @global_path_cache.size > 2000
-          @global_path_cache[path] = result
-        end
-        result
-      end
-    end
-
     def initialize(request_segments:)
       @request_segments = request_segments
       @call_stack = []
@@ -60,7 +41,7 @@ module Catpm
       @depth += 1
 
       path = tp.path
-      app = self.class.app_frame_cached?(path)
+      app = Fingerprint.app_frame?(path)
 
       unless app
         @call_stack.push(:skip)
@@ -97,11 +78,14 @@ module Catpm
     end
 
     def format_detail(defined_class, method_id)
-      if defined_class.singleton_class?
+      name = defined_class.name
+      if name
+        "#{name}##{method_id}"
+      elsif defined_class.singleton_class?
         owner = defined_class.attached_object
         "#{owner.name || owner.inspect}.#{method_id}"
       else
-        "#{defined_class.name || defined_class.inspect}##{method_id}"
+        "#{defined_class.inspect}##{method_id}"
       end
     end
   end

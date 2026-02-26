@@ -2,9 +2,12 @@
 
 module Catpm
   class RequestSegments
+    # Pre-computed symbol pairs — each type computed once per process lifetime.
+    SUMMARY_KEYS = Hash.new { |h, k| h[k] = [:"#{k}_count", :"#{k}_duration"] }
+
     attr_reader :segments, :summary, :request_start
 
-    def initialize(max_segments:, request_start: nil, stack_sample: false)
+    def initialize(max_segments:, request_start: nil, stack_sample: false, call_tree: false)
       @max_segments = max_segments
       @request_start = request_start || Process.clock_gettime(Process::CLOCK_MONOTONIC)
       @segments = []
@@ -12,17 +15,19 @@ module Catpm
       @summary = Hash.new(0)
       @span_stack = []
       @tracked_ranges = []
+      @call_tree = call_tree
 
       if stack_sample
-        @sampler = StackSampler.new(target_thread: Thread.current, request_start: @request_start)
+        @sampler = StackSampler.new(target_thread: Thread.current, request_start: @request_start, call_tree: call_tree)
         @sampler.start
       end
     end
 
     def add(type:, duration:, detail:, source: nil, started_at: nil)
       type_key = type.to_sym
-      @summary[:"#{type_key}_count"] += 1
-      @summary[:"#{type_key}_duration"] += duration
+      count_key, dur_key = SUMMARY_KEYS[type_key]
+      @summary[count_key] += 1
+      @summary[dur_key] += duration
 
       offset = started_at ? ((started_at - @request_start) * 1000.0).round(2) : nil
 
@@ -79,8 +84,9 @@ module Catpm
       segment[:duration] = duration.round(2)
 
       type_key = segment[:type].to_sym
-      @summary[:"#{type_key}_count"] += 1
-      @summary[:"#{type_key}_duration"] += duration
+      count_key, dur_key = SUMMARY_KEYS[type_key]
+      @summary[count_key] += 1
+      @summary[dur_key] += duration
     end
 
     def stop_sampler
@@ -88,7 +94,13 @@ module Catpm
     end
 
     def sampler_segments
+      return [] if @call_tree # call tree mode produces segments via call_tree_segments
       @sampler&.to_segments(tracked_ranges: @tracked_ranges) || []
+    end
+
+    def call_tree_segments
+      return [] unless @sampler && @call_tree
+      @sampler.to_call_tree(tracked_ranges: @tracked_ranges)
     end
 
     def overflowed?

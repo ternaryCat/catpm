@@ -14,19 +14,15 @@ module Catpm
       env['catpm.request_start'] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       if Catpm.config.instrument_segments
+        use_sampler = Catpm.config.instrument_stack_sampler || Catpm.config.instrument_call_tree
         req_segments = RequestSegments.new(
           max_segments: Catpm.config.max_segments_per_request,
           request_start: env['catpm.request_start'],
-          stack_sample: Catpm.config.instrument_stack_sampler
+          stack_sample: use_sampler,
+          call_tree: Catpm.config.instrument_call_tree
         )
         env['catpm.segments'] = req_segments
         Thread.current[:catpm_request_segments] = req_segments
-
-        if Catpm.config.instrument_call_tree
-          call_tracer = CallTracer.new(request_segments: req_segments)
-          call_tracer.start
-          env['catpm.call_tracer'] = call_tracer
-        end
       end
 
       @app.call(env)
@@ -35,7 +31,6 @@ module Catpm
       raise
     ensure
       if Catpm.config.instrument_segments
-        env['catpm.call_tracer']&.stop
         req_segments&.stop_sampler
         Thread.current[:catpm_request_segments] = nil
       end

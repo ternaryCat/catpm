@@ -84,6 +84,8 @@ class CallTracerTest < ActiveSupport::TestCase
         original.call(path)
       end
     end
+    # Clear path cache to prevent test pollution
+    Catpm::Fingerprint.reset_caches!
   end
 
   test 'creates spans for app-code class methods' do

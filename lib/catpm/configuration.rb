@@ -71,7 +71,7 @@ module Catpm
       @instrument_stack_sampler = false
       @instrument_middleware_stack = false
       @max_segments_per_request = 50
-      @segment_source_threshold = 0.0 # ms — capture caller_locations for all segments (set higher to reduce overhead)
+      @segment_source_threshold = 5.0 # ms — capture caller_locations only for segments >= 5ms (set to 0.0 to capture all)
       @max_sql_length = 200
       @slow_threshold = 500 # milliseconds
       @slow_threshold_per_kind = {}
@@ -98,7 +98,7 @@ module Catpm
       @circuit_breaker_recovery_timeout = 60 # seconds
       @sqlite_busy_timeout = 5_000 # milliseconds
       @persistence_batch_size = 100
-      @backtrace_lines = nil
+      @backtrace_lines = 20 # frames per error backtrace (nil = unlimited)
       @shutdown_timeout = 5 # seconds
       @events_enabled = false
       @events_max_samples_per_name = 20

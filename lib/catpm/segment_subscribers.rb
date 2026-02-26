@@ -33,8 +33,9 @@ module Catpm
         return unless req_segments
 
         identifier = payload[:identifier].to_s
-        if defined?(Rails.root) && identifier.start_with?(Rails.root.to_s)
-          identifier = identifier.sub("#{Rails.root}/", '')
+        root_slash = Fingerprint.cached_rails_root_slash
+        if root_slash
+          identifier = identifier.delete_prefix(root_slash)
         end
 
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
