@@ -14,24 +14,32 @@ module Catpm
         @mutex = Mutex.new
         @samplers = []
         @thread = nil
+        @stop = false
       end
 
       def register(sampler)
         @mutex.synchronize do
           @samplers << sampler
+          @stop = false
           start_thread unless @thread&.alive?
         end
       end
 
       def unregister(sampler)
-        @mutex.synchronize { @samplers.delete(sampler) }
+        @mutex.synchronize do
+          @samplers.delete(sampler)
+          @stop = true if @samplers.empty?
+        end
       end
 
       private
 
       def start_thread
+        @stop = false
         @thread = Thread.new do
           loop do
+            break if @stop
+
             interval = if Catpm.config.instrument_call_tree
               [CALL_TREE_SAMPLE_INTERVAL, Catpm.config.stack_sample_interval].min
             else
@@ -45,8 +53,10 @@ module Catpm
       end
 
       def sample_all
-        now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         targets = @mutex.synchronize { @samplers.dup }
+        return if targets.empty?
+
+        now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         targets.each { |s| s.capture(now) }
       end
     end

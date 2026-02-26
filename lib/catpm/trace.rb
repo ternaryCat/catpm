@@ -76,18 +76,15 @@ module Catpm
     owns_segments = false
 
     if req_segments.nil? && config.instrument_segments
+      use_sampler = config.instrument_stack_sampler || config.instrument_call_tree
       req_segments = RequestSegments.new(
         max_segments: config.max_segments_per_request,
         request_start: Process.clock_gettime(Process::CLOCK_MONOTONIC),
-        stack_sample: config.instrument_stack_sampler
+        stack_sample: use_sampler,
+        call_tree: config.instrument_call_tree
       )
       Thread.current[:catpm_request_segments] = req_segments
       owns_segments = true
-
-      if config.instrument_call_tree
-        call_tracer = CallTracer.new(request_segments: req_segments)
-        call_tracer.start
-      end
     end
 
     if req_segments
@@ -105,7 +102,6 @@ module Catpm
       raise
     ensure
       duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time) * 1000.0
-      call_tracer&.stop
       req_segments&.pop_span(ctrl_idx) if ctrl_idx
       req_segments&.stop_sampler
 
