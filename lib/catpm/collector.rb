@@ -91,6 +91,7 @@ module Catpm
             end
 
             # Inject call tree segments from sampler (replaces TracePoint-based CallTracer)
+            ctrl_idx = segments.index { |s| s[:type] == 'controller' }
             if Catpm.config.instrument_call_tree && req_segments
               tree_segs = req_segments.call_tree_segments
               if tree_segs.any?
@@ -260,6 +261,7 @@ module Catpm
             segments.unshift(root_segment)
 
             # Inject call tree segments from sampler
+            ctrl_idx = segments.index { |s| s[:type] == 'controller' }
             if Catpm.config.instrument_call_tree && req_segments
               tree_segs = req_segments.call_tree_segments
               if tree_segs.any?

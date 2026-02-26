@@ -439,6 +439,63 @@ class CollectorTest < ActiveSupport::TestCase
     assert code_seg[:duration] >= 1.0, "Code span should have substantial duration, got #{code_seg[:duration]}"
   end
 
+  test 'process_action_controller with call_tree and no controller span does not crash' do
+    Catpm.configure { |c| c.instrument_call_tree = true }
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(
+      max_segments: 50, request_start: start,
+      stack_sample: true, call_tree: true
+    )
+    # Only SQL segments, no controller push_span/pop_span (e.g. webhook handler)
+    req_segments.add(type: :sql, duration: 3.0, detail: 'SELECT 1', started_at: start)
+    req_segments.stop_sampler
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'Telegram::WebhookController', action: 'message',
+      method: 'POST', path: '/telegram/webhook', status: 200, duration: 15.0
+    )
+
+    # Should not raise "undefined local variable or method `ctrl_idx'"
+    assert_nothing_raised { Catpm::Collector.process_action_controller(event) }
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    assert ev, 'Event should be created'
+    segments = ev.context[:segments]
+    assert_equal 'request', segments[0][:type]
+    sql = segments.find { |s| s[:type] == 'sql' }
+    assert sql, 'SQL segment should be present'
+  end
+
+  test 'process_tracked with call_tree and no controller span does not crash' do
+    Catpm.configure { |c| c.instrument_call_tree = true }
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(
+      max_segments: 50, request_start: start,
+      stack_sample: true, call_tree: true
+    )
+    req_segments.add(type: :sql, duration: 2.0, detail: 'INSERT INTO logs', started_at: start)
+    req_segments.stop_sampler
+    Thread.current[:catpm_request_segments] = req_segments
+
+    # Should not raise "undefined local variable or method `ctrl_idx'"
+    assert_nothing_raised do
+      Catpm::Collector.process_tracked(
+        kind: :custom, target: 'WebhookProcessor',
+        operation: 'process', duration: 20.0,
+        context: {}, metadata: {}, error: nil,
+        req_segments: req_segments
+      )
+    end
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    assert ev, 'Event should be created'
+    segments = ev.context[:segments]
+    assert_equal 'request', segments[0][:type]
+  end
+
   test 'process_active_job creates job event' do
     event = mock_job_event(
       job_class: 'SendEmailJob', job_id: 'abc-123',
