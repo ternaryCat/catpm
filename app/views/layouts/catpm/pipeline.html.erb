@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>catpm — Pipeline</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg-0: #ffffff;
+      --bg-1: #f6f8fa;
+      --bg-2: #eaeef2;
+      --border: #d0d7de;
+      --text-0: #1f2328;
+      --text-1: #656d76;
+      --text-2: #8b949e;
+      --accent: #0969da;
+      --red: #cf222e;
+      --green: #1a7f37;
+      --yellow: #9a6700;
+      --purple: #8250df;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --font-mono: "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
+      --radius: 6px;
+    }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-0);
+      color: var(--text-0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 48px;
+    }
+    .pipeline-showcase { max-width: 1060px; width: 100%; }
+    .pipeline-showcase .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+    }
+    .pipeline-node {
+      background: var(--bg-1);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 28px 24px 24px;
+      text-align: center;
+      min-width: 200px;
+      flex: 1;
+    }
+    .pipeline-node .node-icon { margin-bottom: 10px; line-height: 1; opacity: 0.5; }
+    .pipeline-node .node-icon svg { width: 36px; height: 36px; }
+    .pipeline-node .node-label {
+      font-size: 12px;
+      color: var(--text-1);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+    .pipeline-node .node-value {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-2);
+      margin-top: 6px;
+    }
+    .pipeline-arrow {
+      color: var(--text-2);
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+    }
+    @keyframes flow-arrow { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+    .pipeline-arrow svg { animation: flow-arrow 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <%= yield %>
+</body>
+</html>

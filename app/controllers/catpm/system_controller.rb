@@ -11,5 +11,9 @@ module Catpm
       @active_error_count = Catpm::ErrorRecord.unresolved.count
       @table_sizes = Catpm::Adapter.current.table_sizes
     end
+
+    def pipeline
+      render layout: "catpm/pipeline"
+    end
   end
 end

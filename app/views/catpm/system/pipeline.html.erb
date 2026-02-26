@@ -1,0 +1,344 @@
+<div class="pipeline-showcase">
+  <div class="pipeline">
+    <div class="pipeline-node">
+      <div class="node-icon"><svg width="36" height="36" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="14" r="9"/><path d="M14 9v5l3.5 3.5"/></svg></div>
+      <div class="node-label">Capture</div>
+      <div class="node-value">Middleware</div>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="pipeline-node">
+      <div class="node-icon"><svg width="36" height="36" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="16" height="20" rx="2"/><line x1="10" y1="10" x2="18" y2="10"/><line x1="10" y1="14" x2="18" y2="14"/><line x1="10" y1="18" x2="15" y2="18"/></svg></div>
+      <div class="node-label">Buffer</div>
+      <div class="node-value">Memory Queue</div>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="pipeline-node">
+      <div class="node-icon"><svg width="36" height="36" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,22 10,16 15,19 24,8"/><polyline points="18,8 24,8 24,14"/></svg></div>
+      <div class="node-label">Flush</div>
+      <div class="node-value">Aggregator</div>
+    </div>
+    <div class="pipeline-arrow">
+      <svg width="24" height="16" viewBox="0 0 24 16"><path d="M0 8h20M16 3l5 5-5 5" stroke="var(--text-2)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="pipeline-node">
+      <div class="node-icon"><svg width="36" height="36" viewBox="0 0 28 28" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="14" cy="8" rx="8" ry="4"/><path d="M6 8v12c0 2.2 3.58 4 8 4s8-1.8 8-4V8"/><path d="M6 14c0 2.2 3.58 4 8 4s8-1.8 8-4"/></svg></div>
+      <div class="node-label">Database</div>
+      <div class="node-value">Storage</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var el = document.querySelector('.pipeline');
+  if (!el) return;
+
+  var pnodes = el.querySelectorAll('.pipeline-node');
+  if (pnodes.length < 4) return;
+  var r0 = pnodes[0].getBoundingClientRect();
+  var r1 = pnodes[1].getBoundingClientRect();
+  if (r1.top > r0.bottom - 10) return;
+
+  var arrows = el.querySelectorAll('.pipeline-arrow');
+
+  var canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2';
+  el.style.position = 'relative';
+  el.style.overflow = 'hidden';
+  el.appendChild(canvas);
+
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var W, H;
+  var FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+
+  function resize() {
+    W = el.offsetWidth; H = el.offsetHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(el);
+
+  function zones() {
+    var pr = el.getBoundingClientRect();
+    var nodeZones = Array.prototype.map.call(pnodes, function(n) {
+      var r = n.getBoundingClientRect();
+      return {
+        l: r.left - pr.left, r: r.right - pr.left,
+        t: r.top - pr.top, b: r.bottom - pr.top,
+        cx: (r.left + r.right) / 2 - pr.left,
+        cy: (r.top + r.bottom) / 2 - pr.top,
+        w: r.width, h: r.height
+      };
+    });
+    var arrowZones = Array.prototype.map.call(arrows, function(a) {
+      var r = a.getBoundingClientRect();
+      return {
+        l: r.left - pr.left, r: r.right - pr.left,
+        cx: (r.left + r.right) / 2 - pr.left,
+        cy: (r.top + r.bottom) / 2 - pr.top
+      };
+    });
+    return { nodes: nodeZones, arrows: arrowZones };
+  }
+
+  var C = { ok: '#1a7f37', error: '#cf222e', slow: '#9a6700', sample: '#8250df' };
+  var POOL = ['ok','ok','ok','ok','ok','ok','ok','slow','slow','error','sample'];
+  var SZ = 5;
+  var MAX_BUF = 36;
+  var FLUSH_MS = 3500;
+
+  var METHODS = ['GET','GET','GET','GET','POST','POST','PUT','PATCH','DELETE'];
+  var RPATHS = ['/users','/home','/orders','/api','/settings',
+    '/reports','/data','/search','/login','/pay','/items','/stats'];
+
+  function randLabel(type) {
+    var m = METHODS[Math.floor(Math.random() * METHODS.length)];
+    var p = RPATHS[Math.floor(Math.random() * RPATHS.length)];
+    if (type === 'slow') return m + ' ' + p + ' ' + (200 + Math.floor(Math.random() * 600)) + 'ms';
+    if (type === 'error') {
+      var codes = [500, 502, 503, 422];
+      return m + ' ' + p + ' ' + codes[Math.floor(Math.random() * codes.length)];
+    }
+    return m + ' ' + p;
+  }
+
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  var particles = [];
+  var batchAcc = 0;
+  var flushAcc = 0;
+  var prev = 0;
+
+  function randType() { return POOL[Math.floor(Math.random() * POOL.length)]; }
+
+  function bufRowsPerCol(bz) { return Math.max(1, Math.floor((bz.h - 20) / (SZ + 2))); }
+  function bufSlot(idx, bz) {
+    var perCol = bufRowsPerCol(bz);
+    var col = Math.floor(idx / perCol);
+    var row = idx % perCol;
+    return {
+      x: bz.r - 10 - col * (SZ + 2) - SZ / 2,
+      y: bz.b - 10 - row * (SZ + 2) - SZ / 2
+    };
+  }
+
+  function tick(t) {
+    if (!prev) { prev = t; requestAnimationFrame(tick); return; }
+    var dt = Math.min(t - prev, 50);
+    prev = t;
+
+    var z = zones();
+    if (z.nodes.length < 4) { requestAnimationFrame(tick); return; }
+    var cap = z.nodes[0], buf = z.nodes[1], flu = z.nodes[2], db = z.nodes[3];
+    var laneY = cap.t + cap.h * 0.42;
+
+    var bc = 0;
+    for (var i = 0; i < particles.length; i++) if (particles[i].state === 1) bc++;
+
+    var captureOccupied = false;
+    for (var i = 0; i < particles.length; i++) {
+      if (particles[i].state === 0 && particles[i].phase <= 1) {
+        captureOccupied = true; break;
+      }
+    }
+
+    batchAcc += dt;
+    if (batchAcc > 2500 + Math.random() * 1500 && !captureOccupied) {
+      batchAcc = 0;
+      var count = Math.min(1 + Math.floor(Math.random() * 5), MAX_BUF - bc);
+      if (count > 0) {
+        var spacing = 26;
+        var yBase = laneY - (count - 1) * spacing / 2;
+        for (var j = 0; j < count; j++) {
+          var type = randType();
+          var label = randLabel(type);
+          ctx.font = '500 11px ' + FONT;
+          var lw = ctx.measureText(label).width;
+          var s = bufSlot(bc + j, buf);
+          particles.push({
+            type: type, label: label, labelW: lw,
+            x: cap.l - 20,
+            y: yBase + j * spacing,
+            phase: 0,
+            lingerTime: 300 + Math.random() * 400,
+            lingerAcc: 0,
+            state: 0, opacity: 0, age: 0, progress: 0,
+            slotX: s.x, slotY: s.y
+          });
+        }
+      }
+    }
+
+    flushAcc += dt;
+    if (flushAcc > FLUSH_MS + Math.random() * 2000) {
+      flushAcc = 0;
+      var delay = 0;
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        if (p.state === 1) {
+          p.state = 2;
+          p.phase = 0;
+          p.fx = flu.cx + (Math.random() - 0.5) * 24;
+          p.fy = flu.t + 18 + Math.random() * (flu.h * 0.35);
+          p.tx = db.cx + (Math.random() - 0.5) * 40;
+          p.ty = db.t + 18 + Math.random() * (db.h * 0.4);
+          p.delay = delay;
+          p.waited = 0;
+          p.pauseAcc = 0;
+          delay += 20 + Math.random() * 15;
+        }
+      }
+    }
+
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+
+      if (p.state === 0) {
+        p.age = (p.age || 0) + dt;
+
+        if (p.phase === 0) {
+          p.opacity = Math.min(0.9, p.opacity + dt * 0.005);
+          var dx = cap.cx - p.x;
+          p.x += dx * 0.008 * dt;
+          if (Math.abs(dx) < 3) {
+            p.phase = 1;
+            p.x = cap.cx;
+            p.lingerAcc = 0;
+          }
+        }
+        else if (p.phase === 1) {
+          p.opacity = 0.9;
+          p.lingerAcc += dt;
+          if (p.lingerAcc > p.lingerTime) {
+            p.phase = 2;
+            p.progress = 0;
+            p.startX = p.x;
+            p.startY = p.y;
+          }
+        }
+        else if (p.phase === 2) {
+          p.progress = Math.min(1, p.progress + dt * 0.0012);
+          var ease = p.progress * p.progress * (3 - 2 * p.progress);
+          p.x = lerp(p.startX, p.slotX, ease);
+          p.y = lerp(p.startY, p.slotY, ease);
+          if (p.progress >= 1) {
+            p.state = 1;
+            p.x = p.slotX;
+            p.y = p.slotY;
+            p.opacity = 0.8;
+          }
+        }
+      }
+      else if (p.state === 1) {
+        p.x = p.slotX;
+        p.y = p.slotY;
+      }
+      else if (p.state === 2) {
+        p.waited = (p.waited || 0) + dt;
+        if (p.waited < p.delay) continue;
+
+        if (p.phase === 0) {
+          var dx = p.fx - p.x, dy = p.fy - p.y;
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
+            p.phase = 1; p.pauseAcc = 0;
+          } else {
+            p.x += dx * 0.0035 * dt;
+            p.y += dy * 0.0035 * dt;
+          }
+        }
+        else if (p.phase === 1) {
+          p.pauseAcc += dt;
+          if (p.pauseAcc > 350 + Math.random() * 200) p.phase = 2;
+        }
+        else if (p.phase === 2) {
+          var dx = p.tx - p.x, dy = p.ty - p.y;
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+            p.state = 3; p.ds = t;
+          } else {
+            p.x += dx * 0.0035 * dt;
+            p.y += dy * 0.0035 * dt;
+          }
+        }
+      }
+      else if (p.state === 3) {
+        var e = t - p.ds;
+        p.opacity = 0.8 * Math.max(0, 1 - e / 800);
+        if (p.opacity <= 0.01) { particles.splice(i, 1); continue; }
+      }
+    }
+
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      if (p.opacity <= 0.01) continue;
+
+      var scale = 0;
+      if (p.state === 0) {
+        if (p.phase <= 1) {
+          scale = 1;
+        } else {
+          scale = Math.max(0, 1 - p.progress * 1.5);
+        }
+      }
+
+      ctx.globalAlpha = p.opacity;
+
+      if (scale > 0.12 && p.label) {
+        var fs = Math.round(11 * scale);
+        var bw = (p.labelW + 14) * scale;
+        var bh = 22 * scale;
+        var rad = 3 * scale;
+
+        ctx.fillStyle = C[p.type];
+        ctx.globalAlpha = p.opacity * 0.92;
+        rrect(p.x - bw / 2, p.y - bh / 2, bw, bh, rad);
+        ctx.fill();
+
+        if (fs >= 7) {
+          ctx.globalAlpha = p.opacity;
+          ctx.fillStyle = '#fff';
+          ctx.font = '500 ' + fs + 'px ' + FONT;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(p.label, p.x, p.y + 0.5);
+        }
+      } else {
+        ctx.fillStyle = C[p.type];
+        if (p.state === 3) {
+          var e = t - p.ds;
+          var s = SZ * (1 + e * 0.002);
+          ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+        } else {
+          ctx.fillRect(p.x - SZ / 2, p.y - SZ / 2, SZ, SZ);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
