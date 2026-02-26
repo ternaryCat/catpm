@@ -496,7 +496,7 @@ class CollectorTest < ActiveSupport::TestCase
     assert_equal 'request', segments[0][:type]
   end
 
-  test 'process_action_controller releases req_segments after processing' do
+  test 'process_action_controller does not release req_segments (middleware handles cleanup)' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
     req_segments.add(type: :sql, duration: 5.0, detail: 'SELECT 1', started_at: start)
@@ -509,12 +509,11 @@ class CollectorTest < ActiveSupport::TestCase
     Catpm::Collector.process_action_controller(event)
     Thread.current[:catpm_request_segments] = nil
 
-    # After processing, internal state should be released
-    assert_equal [], req_segments.segments, 'Segments should be released after Collector processes them'
-    assert_nil req_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+    # Collector must NOT release — data may still be needed by other subscribers
+    assert req_segments.segments.size > 0, 'Segments should still be available after Collector processes them'
   end
 
-  test 'process_tracked releases req_segments after processing' do
+  test 'process_tracked does not release req_segments (middleware handles cleanup)' do
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
     req_segments.add(type: :sql, duration: 3.0, detail: 'INSERT INTO logs', started_at: start)
@@ -526,8 +525,8 @@ class CollectorTest < ActiveSupport::TestCase
       req_segments: req_segments
     )
 
-    assert_equal [], req_segments.segments, 'Segments should be released after Collector processes them'
-    assert_nil req_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
+    # Collector must NOT release — process_action_controller may still need data
+    assert req_segments.segments.size > 0, 'Segments should still be available after Collector processes them'
   end
 
   test 'process_active_job creates job event' do

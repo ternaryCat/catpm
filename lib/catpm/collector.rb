@@ -145,7 +145,6 @@ module Catpm
               }
             end
 
-            req_segments.release! # free internal state for GC
           end
 
           context = scrub(context)
@@ -317,7 +316,6 @@ module Catpm
               }
             end
 
-            req_segments.release! # free internal state for GC
           end
 
           context = scrub(context)
