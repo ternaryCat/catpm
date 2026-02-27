@@ -5,9 +5,13 @@ module Catpm
     # Pre-computed symbol pairs — each type computed once per process lifetime.
     SUMMARY_KEYS = Hash.new { |h, k| h[k] = [:"#{k}_count", :"#{k}_duration"] }
 
-    attr_reader :segments, :summary, :request_start
+    # Per-segment byte estimate: Hash overhead + typical keys (type, duration, detail, offset, source, parent_index)
+    SEGMENT_BASE_BYTES = Event::OBJECT_OVERHEAD + (6 * Event::HASH_ENTRY_SIZE)
+    SEGMENT_STRING_OVERHEAD = Event::OBJECT_OVERHEAD # per-string overhead in segment values
 
-    def initialize(max_segments:, request_start: nil, stack_sample: false, call_tree: false)
+    attr_reader :segments, :summary, :request_start, :estimated_bytes, :checkpoint_count
+
+    def initialize(max_segments:, request_start: nil, stack_sample: false, call_tree: false, memory_limit: nil)
       @max_segments = max_segments
       @request_start = request_start || Process.clock_gettime(Process::CLOCK_MONOTONIC)
       @segments = []
@@ -16,11 +20,19 @@ module Catpm
       @span_stack = []
       @tracked_ranges = []
       @call_tree = call_tree
+      @memory_limit = memory_limit
+      @estimated_bytes = 0
+      @checkpoint_callback = nil
+      @checkpoint_count = 0
 
       if stack_sample
         @sampler = StackSampler.new(target_thread: Thread.current, request_start: @request_start, call_tree: call_tree)
         @sampler.start
       end
+    end
+
+    def on_checkpoint(&block)
+      @checkpoint_callback = block
     end
 
     def add(type:, duration:, detail:, source: nil, started_at: nil)
@@ -50,6 +62,9 @@ module Catpm
           @segments[min_idx] = segment
         end
       end
+
+      @estimated_bytes += estimate_segment_bytes(segment)
+      maybe_checkpoint
     end
 
     def push_span(type:, detail:, started_at: nil)
@@ -64,6 +79,7 @@ module Catpm
       index = @segments.size
       @segments << segment
       @span_stack.push(index)
+      @estimated_bytes += estimate_segment_bytes(segment)
       index
     end
 
@@ -114,6 +130,7 @@ module Catpm
       @summary = {}
       @tracked_ranges = []
       @sampler = nil
+      @estimated_bytes = 0
     end
 
     def overflowed?
@@ -126,6 +143,79 @@ module Catpm
         segment_summary: @summary,
         segments_capped: @overflow
       }
+    end
+
+    private
+
+    def estimate_segment_bytes(segment)
+      bytes = SEGMENT_BASE_BYTES
+      bytes += segment[:detail].bytesize + SEGMENT_STRING_OVERHEAD if segment[:detail]
+      bytes += segment[:type].bytesize + SEGMENT_STRING_OVERHEAD if segment[:type]
+      bytes += segment[:source].bytesize + SEGMENT_STRING_OVERHEAD if segment[:source]
+      bytes
+    end
+
+    def maybe_checkpoint
+      return unless @memory_limit && @estimated_bytes > @memory_limit && @checkpoint_callback
+
+      checkpoint_data = {
+        segments: @segments,
+        summary: @summary,
+        overflow: @overflow,
+        sampler_segments: @sampler ? sampler_segments_for_checkpoint : [],
+        checkpoint_number: @checkpoint_count
+      }
+
+      @checkpoint_count += 1
+      rebuild_after_checkpoint
+      @checkpoint_callback.call(checkpoint_data)
+    end
+
+    def sampler_segments_for_checkpoint
+      if @call_tree
+        result = @sampler&.to_call_tree(tracked_ranges: @tracked_ranges) || []
+      else
+        result = @sampler&.to_segments(tracked_ranges: @tracked_ranges) || []
+      end
+      @sampler&.clear_samples!
+      result
+    end
+
+    # After checkpoint: keep only active spans from @span_stack, reset everything else.
+    def rebuild_after_checkpoint
+      if @span_stack.any?
+        # Clone active spans with corrected indices
+        new_segments = []
+        old_to_new = {}
+
+        @span_stack.each do |old_idx|
+          seg = @segments[old_idx]
+          next unless seg
+
+          new_idx = new_segments.size
+          old_to_new[old_idx] = new_idx
+          new_segments << seg.dup
+        end
+
+        # Fix parent_index references in cloned spans
+        new_segments.each do |seg|
+          if seg.key?(:parent_index) && old_to_new.key?(seg[:parent_index])
+            seg[:parent_index] = old_to_new[seg[:parent_index]]
+          else
+            seg.delete(:parent_index)
+          end
+        end
+
+        @span_stack = @span_stack.filter_map { |old_idx| old_to_new[old_idx] }
+        @segments = new_segments
+      else
+        @segments = []
+      end
+
+      @summary = Hash.new(0)
+      @tracked_ranges = []
+      @overflow = false
+      @estimated_bytes = 0
     end
   end
 end

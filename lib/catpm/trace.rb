@@ -77,14 +77,27 @@ module Catpm
 
     if req_segments.nil? && config.instrument_segments
       use_sampler = config.instrument_stack_sampler || config.instrument_call_tree
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       req_segments = RequestSegments.new(
         max_segments: config.max_segments_per_request,
-        request_start: Process.clock_gettime(Process::CLOCK_MONOTONIC),
+        request_start: start_time,
         stack_sample: use_sampler,
-        call_tree: config.instrument_call_tree
+        call_tree: config.instrument_call_tree,
+        memory_limit: config.max_request_memory
       )
       Thread.current[:catpm_request_segments] = req_segments
       owns_segments = true
+
+      if config.max_request_memory
+        req_segments.on_checkpoint do |checkpoint_data|
+          Collector.process_checkpoint(
+            kind: kind, target: target, operation: operation,
+            context: context, metadata: metadata,
+            checkpoint_data: checkpoint_data,
+            request_start: start_time
+          )
+        end
+      end
     end
 
     if req_segments

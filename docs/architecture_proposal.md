@@ -1619,7 +1619,29 @@ See section 4.3 for weight estimation details and section 4.2 for backpressure s
 *   When limit is reached: emergency flush is triggered; if flush is already running, new events are dropped.
 *   Heuristic has ~15% margin of error — the configured limit should account for this.
 
-### 9.2. Background Processing
+### 9.2. Request Memory Checkpointing
+
+While `max_buffer_memory` controls the size of the event queue (Buffer), per-request data (`RequestSegments`, `StackSampler`) lives in thread-local storage until the request completes. For long-running requests (rake tasks, data imports) with `max_segments_per_request = nil`, segments can grow unbounded — e.g., 216,000 SQL segments over a 3-hour task (~40-100 MB).
+
+**Solution:** `config.max_request_memory` (default: 2 MB) sets a per-request memory budget for accumulated segments. When the estimated byte size exceeds this limit, `RequestSegments` triggers a **checkpoint**:
+
+1. Current segments, summary, and sampler data are captured as `checkpoint_data`.
+2. A partial Event (`sample_type: 'random'`, `context[:partial] = true`) is pushed to the Buffer.
+3. `RequestSegments` is rebuilt: only open spans (`@span_stack`) are preserved, summary/tracked_ranges/estimated_bytes are reset.
+4. Collection continues from a clean state.
+
+**Behavior:**
+
+*   Partial checkpoint events appear in the dashboard as regular samples with a `partial` flag and `checkpoint_number`.
+*   The final event (on request completion) contains only the segments accumulated since the last checkpoint.
+*   Open spans (e.g., controller span) survive checkpoints — their indices are remapped.
+*   Setting `max_request_memory = nil` disables checkpointing (segments grow as before, bounded only by `max_segments_per_request`).
+
+**Relationship with `max_buffer_memory`:** Together they form a two-level memory bound:
+*   `max_request_memory` — per-request, per-thread segment data (checkpoint flushes partial results)
+*   `max_buffer_memory` — global event queue (backpressure drops events when full)
+
+### 9.3. Background Processing
 
 See section 5 for full details. Summary:
 
@@ -1628,7 +1650,7 @@ See section 5 for full details. Summary:
 *   Circuit breaker prevents runaway retries during DB outages.
 *   Graceful shutdown with final flush on `SIGTERM`.
 
-### 9.3. Automated Data Retention
+### 9.4. Automated Data Retention
 
 To ensure the database does not grow indefinitely without requiring external schedulers (like cron or sidekiq-cron), `catpm` implements a **Self-Cleaning Mechanism**.
 
@@ -1653,7 +1675,7 @@ end
 
 *   **Downsampling:** Before deleting, the cleanup cycle merges fine-grained buckets into coarser ones (see section 3.4). This preserves long-term trend data while reclaiming space.
 
-### 9.4. Connection Pool Usage
+### 9.5. Connection Pool Usage
 
 The flusher checks out a connection only during the flush cycle and releases it immediately:
 
@@ -1763,6 +1785,7 @@ Catpm.configure do |config|
   # Tuning
   config.retention_period = 7.days           # How long to keep data
   config.max_buffer_memory = 32.megabytes    # Maximum in-memory buffer size
+  config.max_request_memory = 2.megabytes    # Per-request segment memory limit (nil = no limit, checkpoints disabled)
   config.flush_interval = 30                 # seconds (integer)
   config.flush_jitter = 5                    # ±seconds random offset per cycle (reduces SQLite BUSY)
   config.max_error_contexts = 5              # Contexts kept per error fingerprint

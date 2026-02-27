@@ -341,6 +341,53 @@ module Catpm
         Catpm.buffer&.push(ev)
       end
 
+      def process_checkpoint(kind:, target:, operation:, context:, metadata:, checkpoint_data:, request_start:)
+        return unless Catpm.enabled?
+
+        segments = checkpoint_data[:segments].dup
+        collapse_code_wrappers(segments)
+
+        duration_so_far = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - request_start) * 1000.0
+
+        # Inject root request segment
+        root_segment = {
+          type: 'request',
+          detail: "#{operation.presence || kind} #{target}",
+          duration: duration_so_far.round(2),
+          offset: 0.0
+        }
+        segments.each do |seg|
+          if seg.key?(:parent_index)
+            seg[:parent_index] += 1
+          else
+            seg[:parent_index] = 0
+          end
+        end
+        segments.unshift(root_segment)
+
+        checkpoint_context = (context || {}).dup
+        checkpoint_context[:segments] = segments
+        checkpoint_context[:segment_summary] = checkpoint_data[:summary]
+        checkpoint_context[:segments_capped] = checkpoint_data[:overflow]
+        checkpoint_context[:partial] = true
+        checkpoint_context[:checkpoint_number] = checkpoint_data[:checkpoint_number]
+        checkpoint_context = scrub(checkpoint_context)
+
+        ev = Event.new(
+          kind: kind,
+          target: target,
+          operation: operation.to_s,
+          duration: duration_so_far,
+          started_at: Time.current,
+          status: 200,
+          context: checkpoint_context,
+          sample_type: 'random',
+          metadata: (metadata || {}).dup.merge(checkpoint_data[:summary] || {})
+        )
+
+        Catpm.buffer&.push(ev)
+      end
+
       def process_custom(name:, duration:, metadata: {}, error: nil, context: {})
         return unless Catpm.enabled?
         return if Catpm.config.ignored?(name)

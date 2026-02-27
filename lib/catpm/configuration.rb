@@ -43,6 +43,7 @@ module Catpm
       events_max_samples_per_name max_stack_samples_per_request
       max_error_detail_length max_fingerprint_app_frames
       max_fingerprint_gem_frames cleanup_batch_size caller_scan_depth
+      max_request_memory
     ].freeze
 
     (REQUIRED_NUMERIC + OPTIONAL_NUMERIC).each do |attr|
@@ -116,6 +117,7 @@ module Catpm
       @max_fingerprint_gem_frames = 3
       @cleanup_batch_size = 1_000
       @caller_scan_depth = 50
+      @max_request_memory = 2.megabytes
       @instrument_call_tree = false
       @show_untracked_segments = false
     end

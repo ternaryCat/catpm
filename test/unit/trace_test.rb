@@ -264,4 +264,74 @@ class TraceTest < ActiveSupport::TestCase
     assert_equal 'FailingSpan', req_segments.segments.first[:detail]
     assert req_segments.segments.first[:duration] >= 0
   end
+
+  # ─── track_request checkpoint integration ───
+
+  test 'track_request triggers checkpoint for long-running requests' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.max_segments_per_request = nil
+      c.max_request_memory = 5_000 # small limit to trigger checkpoint (~7 segments before flush)
+    end
+
+    Catpm.track_request(kind: :custom, target: 'LongTask#run') do
+      req_segments = Thread.current[:catpm_request_segments]
+      20.times { |i| req_segments.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+    end
+
+    events = @buffer.drain
+    # Should have at least 1 partial checkpoint + 1 final event
+    assert events.size >= 2, "Expected at least 2 events (partial + final), got #{events.size}"
+
+    partial_events = events.select { |e| e.context&.dig(:partial) }
+    assert partial_events.size >= 1, 'Expected at least 1 partial checkpoint event'
+
+    partial = partial_events.first
+    assert_equal 'custom', partial.kind
+    assert_equal 'LongTask#run', partial.target
+    assert_equal 'random', partial.sample_type
+    assert partial.context[:checkpoint_number] >= 0
+    assert partial.context[:segments].is_a?(Array)
+
+    # Final event should also be present
+    final_events = events.reject { |e| e.context&.dig(:partial) }
+    assert final_events.size >= 1, 'Expected at least 1 final event'
+  end
+
+  test 'track_request does not trigger checkpoint with default memory limit' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.max_segments_per_request = 50
+      c.max_request_memory = 2.megabytes
+    end
+
+    Catpm.track_request(kind: :custom, target: 'NormalRequest#index') do
+      req_segments = Thread.current[:catpm_request_segments]
+      5.times { |i| req_segments.add(type: :sql, duration: 1.0, detail: "Q#{i}") }
+    end
+
+    events = @buffer.drain
+    # Only the final event, no checkpoints
+    assert_equal 1, events.size
+    assert_nil events.first.context&.dig(:partial)
+  end
+
+  test 'track_request does not trigger checkpoint when max_request_memory is nil' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.max_segments_per_request = nil
+      c.max_request_memory = nil
+    end
+
+    Catpm.track_request(kind: :custom, target: 'UnlimitedTask#run') do
+      req_segments = Thread.current[:catpm_request_segments]
+      20.times { |i| req_segments.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+    end
+
+    events = @buffer.drain
+    assert_equal 1, events.size, 'Should only have final event, no checkpoints'
+  end
 end
