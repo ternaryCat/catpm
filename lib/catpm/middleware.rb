@@ -12,14 +12,16 @@ module Catpm
       Catpm.flusher&.ensure_running!
 
       env['catpm.request_start'] = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      Thread.current[:catpm_request_start] = env['catpm.request_start']
 
-      if Catpm.config.instrument_segments
+      if Catpm.config.instrument_segments && Collector.should_instrument_request?
         use_sampler = Catpm.config.instrument_stack_sampler || Catpm.config.instrument_call_tree
         req_segments = RequestSegments.new(
           max_segments: Catpm.config.max_segments_per_request,
           request_start: env['catpm.request_start'],
           stack_sample: use_sampler,
-          call_tree: Catpm.config.instrument_call_tree
+          call_tree: Catpm.config.instrument_call_tree,
+          memory_limit: Catpm.config.max_request_memory
         )
         env['catpm.segments'] = req_segments
         Thread.current[:catpm_request_segments] = req_segments
@@ -30,11 +32,10 @@ module Catpm
       record_exception(env, e)
       raise
     ensure
-      if Catpm.config.instrument_segments
-        req_segments&.stop_sampler
-        req_segments&.release!
-        Thread.current[:catpm_request_segments] = nil
-      end
+      req_segments&.stop_sampler
+      req_segments&.release!
+      Thread.current[:catpm_request_segments] = nil
+      Thread.current[:catpm_request_start] = nil
     end
 
     private

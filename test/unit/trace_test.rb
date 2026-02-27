@@ -265,6 +265,66 @@ class TraceTest < ActiveSupport::TestCase
     assert req_segments.segments.first[:duration] >= 0
   end
 
+  # ─── track_request pre-sampling ───
+
+  test 'track_request skips RS creation when not sampled' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.max_random_samples_per_endpoint = 0
+      c.random_sample_rate = 1_000_000 # almost never sample
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    captured_rs = nil
+    Catpm.track_request(kind: :custom, target: 'Worker#run', operation: 'process') do
+      captured_rs = Thread.current[:catpm_request_segments]
+    end
+
+    assert_nil captured_rs, 'Should not create RS when not sampled'
+
+    events = @buffer.drain
+    assert_equal 1, events.size, 'Should still create an event (for count/duration)'
+    assert_nil events.first.metadata[:_instrumented], 'Should not be marked as instrumented'
+  end
+
+  test 'track_request creates RS during filling phase' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.max_random_samples_per_endpoint = 5
+      c.random_sample_rate = 1_000_000 # after filling, almost never sample
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    captured_rs = nil
+    Catpm.track_request(kind: :custom, target: 'NewEndpoint#run', operation: 'process') do
+      captured_rs = Thread.current[:catpm_request_segments]
+    end
+
+    assert_not_nil captured_rs, 'Should create RS during filling phase'
+
+    events = @buffer.drain
+    ev = events.first
+    assert_equal 1, ev.metadata[:_instrumented]
+  end
+
+  test 'track_request always creates RS with random_sample_rate=1' do
+    Catpm.configure do |c|
+      c.enabled = true
+      c.instrument_segments = true
+      c.random_sample_rate = 1 # always instrument
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    captured_rs = nil
+    Catpm.track_request(kind: :custom, target: 'AlwaysInstrumented#run') do
+      captured_rs = Thread.current[:catpm_request_segments]
+    end
+
+    assert_not_nil captured_rs, 'Should always create RS when random_sample_rate=1'
+  end
+
   # ─── track_request checkpoint integration ───
 
   test 'track_request triggers checkpoint for long-running requests' do

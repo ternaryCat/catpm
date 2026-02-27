@@ -10,7 +10,7 @@ class CollectorTest < ActiveSupport::TestCase
     @buffer = Catpm::Buffer.new(max_bytes: 10.megabytes)
     Catpm.buffer = @buffer
     # Reset per-endpoint sample counts so test order doesn't affect sampling decisions
-    Catpm::Collector.instance_variable_set(:@random_sample_counts, nil)
+    Catpm::Collector.reset_sample_counts!
   end
 
   teardown do
@@ -80,10 +80,11 @@ class CollectorTest < ActiveSupport::TestCase
 
   test 'process_action_controller scrubs PII from context' do
     # Rails' default filter_parameters includes :password
+    # Use slow duration to ensure request gets sampled (with context) regardless of instrumentation
     event = mock_ac_event(
       controller: 'UsersController', action: 'create',
       method: 'POST', path: '/users', status: 200,
-      duration: 10.0,
+      duration: 600.0,
       params: { 'controller' => 'users', 'action' => 'create', 'name' => 'Alice', 'password' => 'secret123' }
     )
 
@@ -606,6 +607,204 @@ class CollectorTest < ActiveSupport::TestCase
     Catpm.buffer = nil
     Catpm::Collector.process_custom(name: 'Test', duration: 1.0)
     assert_nil Catpm.buffer
+  end
+
+  # --- Pre-sampling tests ---
+
+  test 'should_instrument_request? returns true when random_sample_rate is 1' do
+    Catpm.configure { |c| c.random_sample_rate = 1 }
+    100.times do
+      assert Catpm::Collector.should_instrument_request?,
+        'rand(1) == 0 always true, so all requests should be instrumented'
+    end
+  end
+
+  test 'should_instrument_request? samples roughly 1/N requests' do
+    Catpm.configure { |c| c.random_sample_rate = 10 }
+    results = 1000.times.map { Catpm::Collector.should_instrument_request? }
+    sampled = results.count(true)
+    # With rate=10, expect ~100 out of 1000 (allow wide range for randomness)
+    assert sampled > 30, "Expected >30 sampled out of 1000, got #{sampled}"
+    assert sampled < 250, "Expected <250 sampled out of 1000, got #{sampled}"
+  end
+
+  test 'should_instrument? always instruments during filling phase' do
+    Catpm.configure { |c| c.max_random_samples_per_endpoint = 5; c.random_sample_rate = 1000 }
+    Catpm::Collector.reset_sample_counts!
+
+    5.times do |i|
+      assert Catpm::Collector.should_instrument?(:http, 'UsersController#index', 'GET'),
+        "Request #{i} should be instrumented during filling phase"
+    end
+  end
+
+  test 'should_instrument? falls back to sampling after filling phase' do
+    Catpm.configure { |c| c.max_random_samples_per_endpoint = 2; c.random_sample_rate = 1000 }
+    Catpm::Collector.reset_sample_counts!
+
+    # Exhaust filling phase: should_instrument? checks the counter,
+    # early_sample_type increments it (simulating the full request lifecycle)
+    2.times do
+      Catpm::Collector.should_instrument?(:http, 'UsersController#index', 'GET')
+      Catpm::Collector.send(:early_sample_type,
+        error: nil, duration: 10.0, kind: :http,
+        target: 'UsersController#index', operation: 'GET', instrumented: true
+      )
+    end
+
+    # After filling, roughly 1/1000 should be instrumented
+    results = 100.times.map { Catpm::Collector.should_instrument?(:http, 'UsersController#index', 'GET') }
+    sampled = results.count(true)
+    assert sampled < 10, "Expected very few sampled after filling, got #{sampled}/100"
+  end
+
+  test 'trigger_force_instrument forces next should_instrument_request? to return true' do
+    Catpm.configure { |c| c.random_sample_rate = 1_000_000 }
+    Catpm::Collector.reset_sample_counts!
+
+    Catpm::Collector.trigger_force_instrument
+    assert Catpm::Collector.should_instrument_request?, 'Should be forced after trigger'
+  end
+
+  test 'trigger_force_instrument with endpoint forces should_instrument? for that endpoint' do
+    Catpm.configure { |c| c.max_random_samples_per_endpoint = 0; c.random_sample_rate = 1_000_000 }
+    Catpm::Collector.reset_sample_counts!
+
+    Catpm::Collector.trigger_force_instrument(kind: :http, target: 'SlowController#show', operation: 'GET')
+    assert Catpm::Collector.should_instrument?(:http, 'SlowController#show', 'GET'),
+      'Should be forced for the specific endpoint'
+  end
+
+  test 'early_sample_type returns nil for non-instrumented normal requests' do
+    Catpm::Collector.reset_sample_counts!
+    result = Catpm::Collector.send(:early_sample_type,
+      error: nil, duration: 10.0, kind: :http,
+      target: 'UsersController#index', operation: 'GET',
+      instrumented: false
+    )
+    assert_nil result, 'Non-instrumented normal request should not be sampled'
+  end
+
+  test 'early_sample_type returns error for non-instrumented error requests' do
+    result = Catpm::Collector.send(:early_sample_type,
+      error: RuntimeError.new('boom'), duration: 10.0, kind: :http,
+      target: 'UsersController#index', operation: 'GET',
+      instrumented: false
+    )
+    assert_equal 'error', result
+  end
+
+  test 'early_sample_type returns slow for non-instrumented slow requests' do
+    result = Catpm::Collector.send(:early_sample_type,
+      error: nil, duration: 600.0, kind: :http,
+      target: 'UsersController#index', operation: 'GET',
+      instrumented: false
+    )
+    assert_equal 'slow', result
+  end
+
+  test 'process_action_controller sets _instrumented metadata when req_segments present' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+    Thread.current[:catpm_request_segments] = req_segments
+
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 10.0
+    )
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_segments] = nil
+
+    ev = @buffer.drain.first
+    assert_equal 1, ev.metadata[:_instrumented]
+  end
+
+  test 'process_action_controller omits _instrumented when not instrumented' do
+    # No req_segments, normal (non-slow) request
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 10.0
+    )
+    Catpm::Collector.process_action_controller(event)
+
+    ev = @buffer.drain.first
+    assert_nil ev.metadata[:_instrumented]
+  end
+
+  test 'process_action_controller triggers force instrument on slow non-instrumented request' do
+    Catpm.configure { |c| c.random_sample_rate = 1_000_000; c.max_random_samples_per_endpoint = 0 }
+    Catpm::Collector.reset_sample_counts!
+
+    # Simulate slow non-instrumented request
+    event = mock_ac_event(
+      controller: 'SlowController', action: 'show',
+      method: 'GET', path: '/slow', status: 200, duration: 600.0
+    )
+    Catpm::Collector.process_action_controller(event)
+
+    # Next request should be forced to instrument
+    assert Catpm::Collector.should_instrument_request?,
+      'should_instrument_request? should return true after slow spike'
+    assert Catpm::Collector.should_instrument?(:http, 'SlowController#show', 'GET'),
+      'should_instrument? should return true for the slow endpoint'
+  end
+
+  test 'process_action_controller uses thread-local start time for non-instrumented requests' do
+    Thread.current[:catpm_request_start] = Process.clock_gettime(Process::CLOCK_MONOTONIC) - 0.100
+
+    event = mock_ac_event(
+      controller: 'UsersController', action: 'index',
+      method: 'GET', path: '/users', status: 200, duration: 5.0
+    )
+    # Make it slow so it gets sampled
+    Catpm.configure { |c| c.slow_threshold = 50 }
+    Catpm::Collector.process_action_controller(event)
+    Thread.current[:catpm_request_start] = nil
+
+    ev = @buffer.drain.first
+    # Duration should be computed from thread-local (~100ms), not event.duration (5ms)
+    assert ev.duration >= 90.0, "Expected duration >= 90ms from thread-local, got #{ev.duration}"
+  end
+
+  test 'process_tracked sets _instrumented metadata when req_segments present' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    req_segments = Catpm::RequestSegments.new(max_segments: 50, request_start: start)
+
+    Catpm::Collector.process_tracked(
+      kind: :custom, target: 'Worker#run', operation: 'process',
+      duration: 20.0, context: {}, metadata: {},
+      error: nil, req_segments: req_segments
+    )
+
+    ev = @buffer.drain.first
+    assert_equal 1, ev.metadata[:_instrumented]
+  end
+
+  test 'process_tracked triggers force instrument on error without instrumentation' do
+    Catpm.configure { |c| c.random_sample_rate = 1_000_000; c.max_random_samples_per_endpoint = 0 }
+    Catpm::Collector.reset_sample_counts!
+
+    error = RuntimeError.new('boom')
+    error.set_backtrace(['app/workers/test.rb:1'])
+
+    Catpm::Collector.process_tracked(
+      kind: :custom, target: 'Worker#run', operation: 'process',
+      duration: 20.0, context: {}, metadata: {},
+      error: error, req_segments: nil
+    )
+
+    assert Catpm::Collector.should_instrument?(:custom, 'Worker#run', 'process'),
+      'should_instrument? should return true after error spike'
+  end
+
+  test 'reset_sample_counts! clears all pre-sampling state' do
+    Catpm::Collector.trigger_force_instrument(kind: :http, target: 'Test#x', operation: 'GET')
+    Catpm::Collector.reset_sample_counts!
+
+    # Force instrument should be cleared
+    Catpm.configure { |c| c.random_sample_rate = 1_000_000; c.max_random_samples_per_endpoint = 0 }
+    assert_not Catpm::Collector.should_instrument_request?,
+      'Force instrument count should be cleared'
   end
 
   private

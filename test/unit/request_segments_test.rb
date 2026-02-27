@@ -379,4 +379,151 @@ class RequestSegmentsTest < ActiveSupport::TestCase
       rs.release!
     end
   end
+
+  # ─── Checkpoint tests ───
+
+  test 'checkpoint triggers when estimated_bytes exceeds memory_limit' do
+    # Each segment is ~600 bytes (SEGMENT_BASE_BYTES + strings), use 5000 to allow ~7 segments
+    memory_limit = 5_000
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: memory_limit)
+    checkpoint_calls = []
+
+    rs.on_checkpoint do |data|
+      checkpoint_calls << data
+    end
+
+    20.times { |i| rs.add(type: :sql, duration: 1.0 + i, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+
+    assert checkpoint_calls.size >= 1, "Expected at least 1 checkpoint, got #{checkpoint_calls.size}"
+
+    checkpoint = checkpoint_calls.first
+    assert checkpoint[:segments].is_a?(Array)
+    assert checkpoint[:segments].size > 1, 'Checkpoint should contain multiple segments'
+    assert checkpoint[:summary].is_a?(Hash)
+    assert_equal 0, checkpoint[:checkpoint_number]
+  end
+
+  test 'checkpoint increments checkpoint_count' do
+    memory_limit = 5_000
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: memory_limit)
+    checkpoint_numbers = []
+
+    rs.on_checkpoint do |data|
+      checkpoint_numbers << data[:checkpoint_number]
+    end
+
+    40.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM very_long_table_name_#{i} WHERE column = #{i}") }
+
+    assert checkpoint_numbers.size >= 2, "Expected at least 2 checkpoints, got #{checkpoint_numbers.size}"
+    assert_equal 0, checkpoint_numbers.first
+    assert_equal 1, checkpoint_numbers[1]
+    assert_equal checkpoint_numbers.size, rs.checkpoint_count
+  end
+
+  test 'checkpoint resets estimated_bytes after firing' do
+    memory_limit = 5_000
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: memory_limit)
+    bytes_after_checkpoint = nil
+
+    rs.on_checkpoint do |_data|
+      bytes_after_checkpoint = rs.estimated_bytes
+    end
+
+    20.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+
+    assert_not_nil bytes_after_checkpoint, 'Checkpoint should have fired'
+    assert_equal 0, bytes_after_checkpoint, 'estimated_bytes should be reset after checkpoint'
+  end
+
+  test 'checkpoint preserves open spans in span_stack' do
+    start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    # Use a limit that allows several segments but still triggers during the loop
+    memory_limit = 5_000
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: memory_limit, request_start: start)
+    checkpoint_fired = false
+
+    rs.on_checkpoint { |_| checkpoint_fired = true }
+
+    # Push a span (simulating controller span)
+    rs.push_span(type: :controller, detail: 'TestCtrl#action', started_at: start)
+
+    # Add segments until checkpoint
+    20.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+
+    assert checkpoint_fired, 'Checkpoint should have fired'
+
+    # After checkpoint, the controller span should still be in segments
+    ctrl_seg = rs.segments.find { |s| s[:type] == 'controller' }
+    assert_not_nil ctrl_seg, 'Controller span should survive checkpoint'
+    assert_equal 'TestCtrl#action', ctrl_seg[:detail]
+
+    # New segments should still get the correct parent
+    rs.add(type: :sql, duration: 2.0, detail: 'Q', started_at: start)
+    last_seg = rs.segments.last
+    assert last_seg.key?(:parent_index), 'New segment should have parent_index from span_stack'
+  end
+
+  test 'checkpoint resets summary' do
+    memory_limit = 5_000
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: memory_limit)
+    checkpoint_summaries = []
+
+    rs.on_checkpoint do |data|
+      checkpoint_summaries << data[:summary].dup
+    end
+
+    20.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+
+    assert checkpoint_summaries.size >= 1
+    # The first checkpoint should have captured SQL counts
+    assert checkpoint_summaries.first[:sql_count] > 1, 'First checkpoint should have multiple SQL counts'
+
+    # After checkpoint, summary should be reset — new segments start fresh
+    rs.add(type: :view, duration: 5.0, detail: 'V')
+    assert_equal 1, rs.summary[:view_count]
+    # SQL count should only reflect post-checkpoint segments (fewer than the batch in checkpoint)
+    assert rs.summary[:sql_count] < checkpoint_summaries.first[:sql_count]
+  end
+
+  test 'no checkpoint fires without callback' do
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: 5_000)
+
+    assert_nothing_raised do
+      20.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+    end
+
+    assert_equal 0, rs.checkpoint_count
+  end
+
+  test 'no checkpoint fires without memory_limit' do
+    rs = Catpm::RequestSegments.new(max_segments: nil, memory_limit: nil)
+    checkpoint_fired = false
+    rs.on_checkpoint { |_| checkpoint_fired = true }
+
+    20.times { |i| rs.add(type: :sql, duration: 1.0, detail: "SELECT * FROM table_#{i} WHERE id = #{i}") }
+
+    assert_not checkpoint_fired, 'Checkpoint should not fire when memory_limit is nil'
+    assert_equal 0, rs.checkpoint_count
+  end
+
+  test 'estimated_bytes increases with each segment' do
+    rs = Catpm::RequestSegments.new(max_segments: nil)
+    assert_equal 0, rs.estimated_bytes
+
+    rs.add(type: :sql, duration: 5.0, detail: 'SELECT 1')
+    first_bytes = rs.estimated_bytes
+    assert first_bytes > 0
+
+    rs.add(type: :sql, duration: 3.0, detail: 'SELECT 2')
+    assert rs.estimated_bytes > first_bytes
+  end
+
+  test 'release! resets estimated_bytes' do
+    rs = Catpm::RequestSegments.new(max_segments: nil)
+    rs.add(type: :sql, duration: 5.0, detail: 'SELECT 1')
+    assert rs.estimated_bytes > 0
+
+    rs.release!
+    assert_equal 0, rs.estimated_bytes
+  end
 end

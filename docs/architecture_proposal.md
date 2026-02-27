@@ -1641,7 +1641,59 @@ While `max_buffer_memory` controls the size of the event queue (Buffer), per-req
 *   `max_request_memory` — per-request, per-thread segment data (checkpoint flushes partial results)
 *   `max_buffer_memory` — global event queue (backpressure drops events when full)
 
-### 9.3. Background Processing
+### 9.3. Early Sampling (Pre-Sampling)
+
+Without pre-sampling, **every** request gets full instrumentation: `RequestSegments` creation, `StackSampler` running `backtrace_locations` every 5ms, and all segment subscribers (SQL, view, cache) collecting data. The sampling decision (`early_sample_type`) happens at the **end** of the request. For ~95% of requests the collected segments are discarded — only `segment_summary` counts survive in bucket metadata.
+
+This overhead is measurable: in production (tg_filter), CPU grew from 4% to 14% primarily due to `StackSampler` running on every request.
+
+**Solution:** Move the sampling decision to the **start** of the request. Sampled requests get full instrumentation. Non-sampled requests only contribute duration and count — a single nil check per subscriber.
+
+#### Two Entry Points
+
+| Entry Point | Endpoint Known? | Filling Phase | Method |
+|---|---|---|---|
+| **Middleware** (`Catpm::Middleware`) | No | Deferred to `early_sample_type` | `Collector.should_instrument_request?` |
+| **track_request** (`Catpm.track_request`) | Yes | Per-endpoint in `should_instrument?` | `Collector.should_instrument?(kind, target, op)` |
+
+#### Decision Flow
+
+```
+should_instrument_request? / should_instrument?(kind, target, op)
+  │
+  ├─ force_instrument_count > 0?  → YES (decrement counter)
+  ├─ [track_request only] force_instrument_endpoints has key? → YES (delete key)
+  ├─ [track_request only] filling phase (count < max_random_samples_per_endpoint)? → YES
+  └─ rand(random_sample_rate) == 0? → YES / NO
+```
+
+#### Filling Phase
+
+New endpoints need instrumented samples quickly. `should_instrument?` (track_request path) checks `instrumented_sample_counts[endpoint_key]` against `max_random_samples_per_endpoint`. Until the counter is reached, every request is instrumented. The counter is incremented in `early_sample_type` only for instrumented requests — non-instrumented requests don't waste filling slots.
+
+For the middleware path (HTTP), endpoint is unknown at start, so filling is handled by `early_sample_type` at the end.
+
+#### Slow Spike Detection
+
+When a non-instrumented request is slow or errors, `trigger_force_instrument` is called. This:
+1. Sets `force_instrument_endpoints[endpoint_key] = true` (per-endpoint force for `should_instrument?`)
+2. Increments `@force_instrument_count` (global force for `should_instrument_request?`)
+
+The next request(s) to that endpoint will be fully instrumented, capturing the root cause.
+
+#### Dashboard Averaging
+
+Non-instrumented requests don't contribute `segment_summary` to metadata. To compute correct averages in the Time Breakdown chart, instrumented requests set `metadata[:_instrumented] = 1`. The dashboard uses the sum of `_instrumented` as the divisor (with fallback to `@count` for backward compatibility with pre-existing data).
+
+#### Backward Compatibility
+
+`random_sample_rate = 1` → `rand(1) == 0` is always true → every request is instrumented → identical to pre-sampling behavior. This is the safe default for users who want full instrumentation.
+
+#### Thread Safety
+
+`@force_instrument_count`, `@instrumented_sample_counts`, `@force_instrument_endpoints` are unsynchronized heuristics (same approach as the previous `@random_sample_counts`). Race conditions are acceptable — this is sampling, not accounting.
+
+### 9.4. Background Processing
 
 See section 5 for full details. Summary:
 
@@ -1650,7 +1702,7 @@ See section 5 for full details. Summary:
 *   Circuit breaker prevents runaway retries during DB outages.
 *   Graceful shutdown with final flush on `SIGTERM`.
 
-### 9.4. Automated Data Retention
+### 9.5. Automated Data Retention
 
 To ensure the database does not grow indefinitely without requiring external schedulers (like cron or sidekiq-cron), `catpm` implements a **Self-Cleaning Mechanism**.
 
@@ -1675,7 +1727,7 @@ end
 
 *   **Downsampling:** Before deleting, the cleanup cycle merges fine-grained buckets into coarser ones (see section 3.4). This preserves long-term trend data while reclaiming space.
 
-### 9.5. Connection Pool Usage
+### 9.6. Connection Pool Usage
 
 The flusher checks out a connection only during the flush cycle and releases it immediately:
 

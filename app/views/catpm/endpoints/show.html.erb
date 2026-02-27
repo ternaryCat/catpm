@@ -72,11 +72,13 @@
 <% end %>
 
 <%
+  instrumented_count = (@metadata["_instrumented"] || @metadata[:"_instrumented"] || 0).to_f
+  instrumented_count = @count.to_f if instrumented_count == 0  # backward compat with pre-sampling data
   type_data = segment_colors.map { |type, color|
     count = (@metadata["#{type}_count"] || @metadata[:"#{type}_count"] || 0).to_f
     dur = (@metadata["#{type}_duration"] || @metadata[:"#{type}_duration"] || 0).to_f
-    avg_dur = @count > 0 ? dur / @count : 0
-    avg_count = @count > 0 ? count / @count : 0
+    avg_dur = instrumented_count > 0 ? dur / instrumented_count : 0
+    avg_count = instrumented_count > 0 ? count / instrumented_count : 0
     text_color = segment_text_colors[type] || "#4b5563"
     { type: type, label: segment_labels[type] || type.capitalize, bg: color, text: text_color, count: count, dur: dur, avg_dur: avg_dur, avg_count: avg_count }
   }.select { |d| d[:count] > 0 }

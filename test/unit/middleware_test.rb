@@ -131,6 +131,7 @@ class MiddlewareTest < ActiveSupport::TestCase
       c.instrument_segments = true
       c.instrument_stack_sampler = true
       c.stack_sample_interval = 0.005
+      c.random_sample_rate = 1 # force all requests to be instrumented
     end
 
     captured_segments = nil
@@ -149,11 +150,81 @@ class MiddlewareTest < ActiveSupport::TestCase
     assert_nil captured_segments.instance_variable_get(:@sampler), 'Sampler should be nil after release'
   end
 
+  test 'sets thread-local catpm_request_start for all requests' do
+    Catpm.configure { |c| c.random_sample_rate = 1_000_000 } # almost never instrument
+
+    captured_start = nil
+    app = ->(env) do
+      captured_start = Thread.current[:catpm_request_start]
+      [200, {}, ['OK']]
+    end
+    middleware = Catpm::Middleware.new(app)
+
+    middleware.call({})
+    assert_not_nil captured_start, 'Thread-local request start should always be set'
+    assert_nil Thread.current[:catpm_request_start], 'Thread-local should be cleaned up after request'
+  end
+
+  test 'skips RequestSegments creation when not sampled' do
+    Catpm.configure do |c|
+      c.instrument_segments = true
+      c.random_sample_rate = 1_000_000 # almost never sample
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    captured_segments = nil
+    app = ->(env) do
+      captured_segments = env['catpm.segments']
+      [200, {}, ['OK']]
+    end
+    middleware = Catpm::Middleware.new(app)
+
+    middleware.call({})
+    assert_nil captured_segments, 'Should not create RS when not sampled'
+    assert_nil Thread.current[:catpm_request_segments]
+  end
+
+  test 'creates RequestSegments when sampled (random_sample_rate=1)' do
+    Catpm.configure do |c|
+      c.instrument_segments = true
+      c.random_sample_rate = 1 # always instrument
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    captured_segments = nil
+    app = ->(env) do
+      captured_segments = env['catpm.segments']
+      [200, {}, ['OK']]
+    end
+    middleware = Catpm::Middleware.new(app)
+
+    middleware.call({})
+    assert_not_nil captured_segments, 'Should create RS when sampled'
+  end
+
+  test 'cleans up thread-locals even on exception without RS' do
+    Catpm.configure do |c|
+      c.instrument_segments = true
+      c.random_sample_rate = 1_000_000 # don't instrument
+    end
+    Catpm::Collector.reset_sample_counts!
+
+    app = ->(_env) { raise RuntimeError, 'boom' }
+    middleware = Catpm::Middleware.new(app)
+
+    env = { 'REQUEST_METHOD' => 'GET', 'PATH_INFO' => '/test' }
+    assert_raises(RuntimeError) { middleware.call(env) }
+
+    assert_nil Thread.current[:catpm_request_segments]
+    assert_nil Thread.current[:catpm_request_start]
+  end
+
   test 'releases request segments even on exception' do
     Catpm.configure do |c|
       c.instrument_segments = true
       c.instrument_stack_sampler = true
       c.stack_sample_interval = 0.005
+      c.random_sample_rate = 1 # force all requests to be instrumented
     end
 
     captured_segments = nil

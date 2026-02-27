@@ -19,6 +19,8 @@ module Catpm
         metadata = build_http_metadata(payload)
 
         req_segments = Thread.current[:catpm_request_segments]
+        instrumented = !req_segments.nil?
+
         if req_segments
           segment_data = req_segments.to_h
 
@@ -28,7 +30,16 @@ module Catpm
 
           # Segment summary is always needed for bucket metadata aggregation
           segment_data[:segment_summary].each { |k, v| metadata[k] = v }
+        else
+          # Non-instrumented request — compute duration from thread-local start time
+          request_start = Thread.current[:catpm_request_start]
+          if request_start
+            duration = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - request_start) * 1000.0
+          end
         end
+
+        # Track instrumented count for correct dashboard averaging
+        metadata[:_instrumented] = 1 if instrumented
 
         # Early sampling decision — only build heavy context for sampled events
         operation = payload[:method] || 'GET'
@@ -37,8 +48,14 @@ module Catpm
           duration: duration,
           kind: :http,
           target: target,
-          operation: operation
+          operation: operation,
+          instrumented: instrumented
         )
+
+        # Slow spike detection: force instrument next request for this endpoint
+        if !instrumented && (payload[:exception] || duration >= Catpm.config.slow_threshold_for(:http))
+          trigger_force_instrument(kind: :http, target: target, operation: operation)
+        end
 
         if sample_type
           context = build_http_context(payload)
@@ -224,19 +241,29 @@ module Catpm
         return if Catpm.config.ignored?(target)
 
         metadata = (metadata || {}).dup
+        instrumented = !req_segments.nil?
 
         if req_segments
           segment_data = req_segments.to_h
           segment_data[:segment_summary]&.each { |k, v| metadata[k] = v }
         end
 
+        # Track instrumented count for correct dashboard averaging
+        metadata[:_instrumented] = 1 if instrumented
+
         sample_type = early_sample_type(
           error: error,
           duration: duration,
           kind: kind,
           target: target,
-          operation: operation
+          operation: operation,
+          instrumented: instrumented
         )
+
+        # Slow spike detection: force instrument next request for this endpoint
+        if !instrumented && (error || duration >= Catpm.config.slow_threshold_for(kind.to_sym))
+          trigger_force_instrument(kind: kind, target: target, operation: operation)
+        end
 
         if sample_type
           context = (context || {}).dup
@@ -408,7 +435,64 @@ module Catpm
         Catpm.buffer&.push(ev)
       end
 
-      private
+      # --- Pre-sampling: decide BEFORE request whether to instrument ---
+
+      # For HTTP middleware where endpoint is unknown at start.
+      # Returns true if this request should get full instrumentation.
+      def should_instrument_request?
+        # Force after slow spike detection
+        if (@force_instrument_count || 0) > 0
+          @force_instrument_count -= 1
+          return true
+        end
+
+        rand(Catpm.config.random_sample_rate) == 0
+      end
+
+      # For track_request where endpoint is known at start.
+      # Filling phase ensures new endpoints get instrumented samples quickly.
+      def should_instrument?(kind, target, operation)
+        endpoint_key = [kind.to_s, target.to_s, (operation || '').to_s]
+
+        # Force after slow spike
+        if force_instrument_endpoints.delete(endpoint_key)
+          return true
+        end
+
+        # Filling phase — endpoint hasn't collected enough instrumented samples yet
+        max = Catpm.config.max_random_samples_per_endpoint
+        if max.nil? || instrumented_sample_counts[endpoint_key] < max
+          return true
+        end
+
+        rand(Catpm.config.random_sample_rate) == 0
+      end
+
+      # Called when a slow/error request had no instrumentation —
+      # forces the NEXT request(s) to be fully instrumented.
+      def trigger_force_instrument(kind: nil, target: nil, operation: nil)
+        if kind && target
+          endpoint_key = [kind.to_s, target.to_s, (operation || '').to_s]
+          force_instrument_endpoints[endpoint_key] = true
+        end
+        @force_instrument_count = (@force_instrument_count || 0) + 1
+      end
+
+      def reset_sample_counts!
+        @instrumented_sample_counts = nil
+        @force_instrument_endpoints = nil
+        @force_instrument_count = nil
+      end
+
+    private
+
+      def force_instrument_endpoints
+        @force_instrument_endpoints ||= {}
+      end
+
+      def instrumented_sample_counts
+        @instrumented_sample_counts ||= Hash.new(0)
+      end
 
       # Remove near-zero-duration "code" spans that merely wrap a "controller" span.
       # This happens when CallTracer (TracePoint) captures a thin dispatch method
@@ -464,31 +548,30 @@ module Catpm
       end
 
       # Determine sample type at event creation time so only sampled events
-      # carry full context in the buffer. Includes filling phase via
-      # process-level counter (resets on restart — acceptable approximation).
-      def early_sample_type(error:, duration:, kind:, target:, operation:)
+      # carry full context in the buffer.
+      #
+      # When instrumented: false, only error/slow get a sample_type —
+      # non-instrumented normal requests just contribute duration/count.
+      # Filling counter only increments for instrumented requests so
+      # non-instrumented requests don't waste filling slots.
+      def early_sample_type(error:, duration:, kind:, target:, operation:, instrumented: true)
         return 'error' if error
         return 'slow' if duration >= Catpm.config.slow_threshold_for(kind.to_sym)
 
-        # Filling phase: always sample until endpoint has enough random samples
+        # Non-instrumented requests have no segments — skip sample creation
+        return nil unless instrumented
+
+        # Filling phase: always sample until endpoint has enough instrumented samples
         endpoint_key = [kind.to_s, target, operation.to_s]
-        count = random_sample_counts[endpoint_key]
+        count = instrumented_sample_counts[endpoint_key]
         max_random = Catpm.config.max_random_samples_per_endpoint
         if max_random.nil? || count < max_random
-          random_sample_counts[endpoint_key] = count + 1
+          instrumented_sample_counts[endpoint_key] = count + 1
           return 'random'
         end
 
-        return 'random' if rand(Catpm.config.random_sample_rate) == 0
-        nil
-      end
-
-      def random_sample_counts
-        @random_sample_counts ||= Hash.new(0)
-      end
-
-      def reset_sample_counts!
-        @random_sample_counts = nil
+        # Instrumented request was already chosen by dice roll at start — always sample
+        'random'
       end
 
       def inject_gap_segments(segments, req_segments, gap, ctrl_idx, ctrl_seg)
