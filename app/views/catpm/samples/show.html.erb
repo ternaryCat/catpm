@@ -17,8 +17,7 @@
     <span>Sample #<%= @sample.id %></span>
   </div>
   <%= button_to "Delete Sample", catpm.sample_path(@sample),
-      method: :delete, class: "btn btn-danger",
-      data: { confirm: "Delete this sample? This cannot be undone." } %>
+      method: :delete, class: "btn btn-danger" %>
 </div>
 
 <%# ─── Request Info Bar ─── %>

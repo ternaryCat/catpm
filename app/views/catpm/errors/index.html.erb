@@ -15,7 +15,7 @@
     <% end %>
     <input type="text" class="search-input" id="error-search" placeholder="Search errors... (/)" oninput="filterByText('error-search','errors-table')">
     <% if @tab == "active" && @active_count > 0 %>
-      <span style="display:inline; margin-left:auto"><%= button_to "Resolve all", catpm.resolve_all_errors_path, method: :post, class: "btn", data: { confirm: "Resolve all #{@active_count} active errors?" } %></span>
+      <span style="display:inline; margin-left:auto"><%= button_to "Resolve all", catpm.resolve_all_errors_path, method: :post, class: "btn" %></span>
     <% end %>
   </div>
 <% end %>
